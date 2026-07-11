@@ -1,0 +1,7 @@
+/.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.runs/
+.gepa-runs/
+.release-runs/

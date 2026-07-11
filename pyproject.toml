@@ -1,0 +1,16 @@
+[project]
+name = "agent-reliability-lab"
+version = "0.1.0"
+description = "Local support-agent reliability environment for realistic workflow evaluation."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.70.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
