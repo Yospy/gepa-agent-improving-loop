@@ -1,7 +1,32 @@
 # Todo
 
 ## Active Sprint
-`sprints/project-results-publication-v1.md`
+`sprints/gpt-5-5-evaluator-parity-v1.md`
+
+## GPT-5.5 Evaluator Parity V1 (Sprint 22)
+- [x] Add exact GPT-5.5 phrase regressions and negative controls.
+- [x] Correct response normalization and narrow semantic patterns.
+- [x] Run focused, full, compile, and offline replay verification.
+- [x] Complete structured diff, safety, edge-case, and sprint review.
+
+## Suite Progress Logging V1 (Sprint 21)
+- [x] Add failing library and CLI progress tests.
+- [x] Add per-rollout start and terminal progress messages.
+- [x] Keep progress on flushed stderr and JSON on stdout.
+- [x] Document the progress contract.
+- [x] Run verification and structured review.
+- [x] Commit, push, and update draft PR #2.
+
+## GPT-5.5 Model Upgrade V1 (Sprint 20)
+- [x] Add a regression test for the shared model default.
+- [x] Upgrade the support agent and GEPA teacher default to GPT-5.5.
+- [x] Update the active live-run documentation.
+- [x] Run targeted, full, compile, CLI, and diff verification.
+- [x] Complete structured review and document results.
+- [x] Commit, push, and open the follow-up draft PR.
+- [x] Add a failing GPT-5.5 transport compatibility test.
+- [x] Omit unsupported temperature only for GPT-5.5 models.
+- [x] Rerun verification and update draft PR #2.
 
 ## Project Results Publication V1 (Sprint 19)
 - [x] Add the approved project name and description.

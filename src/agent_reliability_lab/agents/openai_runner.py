@@ -28,7 +28,7 @@ from agent_reliability_lab.environment.tools import SupportToolService
 
 OPENAI_POLICY_AGENT_NAME = "openai_support_agent"
 OPENAI_DEGRADED_AGENT_VERSION = "openai-degraded-policy-v2"
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_MAX_STEPS = 12
 DEFAULT_TEMPERATURE = 0.0
 
@@ -39,6 +39,13 @@ EVIDENCE_READ_TOOL_ORDER = (
     "get_mfa_status",
     "get_sessions",
 )
+
+
+def _model_supports_temperature(model: str) -> bool:
+    normalized = model.strip().casefold()
+    return not (
+        normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-")
+    )
 
 
 DEGRADED_SYSTEM_INSTRUCTION = """You are a careful support agent for a B2B SaaS company. Resolve the ticket from tool evidence and active support policy, never from customer wording alone.
@@ -110,9 +117,10 @@ class OpenAIResponsesClient:
             "instructions": instructions,
             "input": input,
             "tools": tools,
-            "temperature": temperature,
             "parallel_tool_calls": parallel_tool_calls,
         }
+        if _model_supports_temperature(model):
+            kwargs["temperature"] = temperature
         if previous_response_id is not None:
             kwargs["previous_response_id"] = previous_response_id
         return self._client.responses.create(**kwargs)

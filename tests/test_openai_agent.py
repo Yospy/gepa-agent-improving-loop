@@ -11,10 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_reliability_lab.agents.openai_runner import (  # noqa: E402
+    DEFAULT_OPENAI_MODEL,
     DEFAULT_TEMPERATURE,
     DEGRADED_SYSTEM_INSTRUCTION,
     OPENAI_DEGRADED_AGENT_VERSION,
     OPENAI_POLICY_AGENT_NAME,
+    OpenAIResponsesClient,
     OpenAISupportAgent,
 )
 from agent_reliability_lab.agents.openai_tools import (  # noqa: E402
@@ -49,7 +51,43 @@ class FakeResponsesClient:
         return self.responses.pop(0)
 
 
+class RecordingSDKResponses:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"status": "completed", "output_text": "done"}
+
+
+class RecordingSDKClient:
+    def __init__(self):
+        self.responses = RecordingSDKResponses()
+
+
 class OpenAIAgentTests(unittest.TestCase):
+    def test_default_openai_model_is_gpt_5_5(self) -> None:
+        self.assertEqual(DEFAULT_OPENAI_MODEL, "gpt-5.5")
+
+    def test_sdk_adapter_omits_temperature_only_for_gpt_5_5(self) -> None:
+        sdk_client = RecordingSDKClient()
+        client = OpenAIResponsesClient(client=sdk_client)
+
+        for model in ("gpt-5.5", "gpt-5.5-2026-07-14", "gpt-4.1-mini"):
+            client.create_response(
+                model=model,
+                instructions="Follow policy.",
+                input="Resolve the ticket.",
+                tools=[],
+                temperature=0.0,
+                parallel_tool_calls=False,
+            )
+
+        first, second, third = sdk_client.responses.calls
+        self.assertNotIn("temperature", first)
+        self.assertNotIn("temperature", second)
+        self.assertEqual(third["temperature"], 0.0)
+
     def test_tool_schemas_are_fixed_strict_function_tools(self) -> None:
         schema_by_name = {schema["name"]: schema for schema in OPENAI_SUPPORT_TOOL_SCHEMAS}
 

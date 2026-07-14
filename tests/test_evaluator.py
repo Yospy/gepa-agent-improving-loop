@@ -395,6 +395,95 @@ class EvaluatorTests(unittest.TestCase):
 
         self.assertTrue(result.passed, result.feedback_text)
 
+    def test_completed_action_confirmation_accepts_gpt_5_5_smart_apostrophe(
+        self,
+    ) -> None:
+        attempt = _build_good_attempt(
+            final_response=(
+                "Your password reset did complete successfully. The reason you "
+                "still can’t log in is that the account was already locked after "
+                "repeated password-stage login failures, and a successful password "
+                "reset does not automatically clear that lock. I’ve escalated the "
+                "case for identity verification before the account can be unlocked. "
+                "The safe next step is to complete the verification process when "
+                "our support team follows up."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_verified_unlock_accepts_gpt_5_5_action_and_next_step_phrases(
+        self,
+    ) -> None:
+        responses = [
+            (
+                "Your password reset completed successfully, but the account was "
+                "still blocked by an existing lockout. I’ve unlocked the account "
+                "now. Please try signing in again with your new password."
+            ),
+            (
+                "Your password reset completed successfully. The remaining "
+                "sign-in issue was an existing account lockout. Because your "
+                "requester verification was confirmed, I cleared the lockout. "
+                "Please try signing in again with your new password."
+            ),
+            (
+                "The issue was an account lockout caused by repeated password-stage "
+                "sign-in failures. Your password reset did complete successfully, "
+                "but it did not automatically clear the existing lockout. I’ve "
+                "unlocked the account. Please try signing in again with the new "
+                "password you set."
+            ),
+        ]
+
+        for response in responses:
+            with self.subTest(response=response):
+                result = evaluate_attempt(
+                    _build_verified_unlock_attempt(final_response=response)
+                )
+
+                self.assertTrue(result.passed, result.feedback_text)
+
+    def test_mfa_root_cause_accepts_coordinated_lockout_negation(self) -> None:
+        attempt = _build_mfa_attempt(
+            final_response=(
+                "Your password reset completed successfully. The current blocker "
+                "is not the password or an account lockout: your login is failing "
+                "at the MFA/authenticator-code step. I’ve escalated the case for "
+                "manual MFA recovery. Please wait for the recovery follow-up from "
+                "support."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_future_or_attempted_actions_do_not_confirm_completion(self) -> None:
+        attempts = [
+            _build_good_attempt(
+                final_response=(
+                    "The password reset completed, but the account is locked. "
+                    "I will escalate this for identity verification with support."
+                )
+            ),
+            _build_verified_unlock_attempt(
+                final_response=(
+                    "The password reset completed, but an account lockout remains. "
+                    "I tried to unlock it; please try signing in again."
+                )
+            ),
+        ]
+
+        for attempt in attempts:
+            with self.subTest(response=attempt.final_response):
+                result = evaluate_attempt(attempt)
+                checks = {check.name: check for check in result.checks}
+
+                self.assertFalse(checks["completed_action_confirmation"].passed)
+
     def test_called_auth_tool_with_narrow_window_gets_argument_feedback(self) -> None:
         attempt = _build_good_attempt(
             auth_time_window={
@@ -582,7 +671,9 @@ def _build_wrong_user_lockout_attempt() -> AgentAttempt:
     )
 
 
-def _build_verified_unlock_attempt() -> AgentAttempt:
+def _build_verified_unlock_attempt(
+    *, final_response: str | None = None
+) -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(
         ROOT / "data" / "scenarios" / "verified_unlock_v1.json",
@@ -605,14 +696,15 @@ def _build_verified_unlock_attempt() -> AgentAttempt:
         initial_state=initial_state,
         final_state=store.snapshot(),
         tool_calls=service.call_log,
-        final_response=(
+        final_response=final_response
+        or (
             "The password reset completed, and the account lockout was cleared. "
             "I unlocked the account after verified identity, so access is restored."
         ),
     )
 
 
-def _build_mfa_attempt() -> AgentAttempt:
+def _build_mfa_attempt(*, final_response: str | None = None) -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(
         ROOT / "data" / "scenarios" / "mfa_blocker_v1.json",
@@ -644,7 +736,8 @@ def _build_mfa_attempt() -> AgentAttempt:
         initial_state=initial_state,
         final_state=store.snapshot(),
         tool_calls=service.call_log,
-        final_response=(
+        final_response=final_response
+        or (
             "The password reset completed, and the remaining blocker is the "
             "MFA authenticator challenge. I escalated this for manual MFA "
             "recovery."

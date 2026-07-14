@@ -56,11 +56,13 @@ NEGATED_LOCKOUT_PATTERNS = (
     r"\bnot a lockout\b",
     r"\bno account lock\b",
     r"\bnot an? account lock\b",
+    r"\bnot (?:the )?password or an? account lockout\b",
     r"\baccount lock (?:is|was) not\b",
 )
 
 PASSWORD_RESET_SUCCESS_PATTERNS = (
     r"\bpassword reset (succeeded|succeed|completed|complete|worked)\b",
+    r"\bpassword reset did complete successfully\b",
     r"\bpassword reset (was|is|has been) (successful|completed)\b",
     r"\bpassword reset(?: for (?:your|the) account)? (?:was|is|has been) "
     r"completed successfully\b",
@@ -80,6 +82,8 @@ COMPLETED_ESCALATION_PATTERNS = (
 
 COMPLETED_UNLOCK_PATTERNS = (
     r"\b(?:i|we)(?:'ve| have)? (?:now )?unlocked\b",
+    r"\b(?:i|we)(?:'ve| have)? (?:now )?cleared "
+    r"(?:the |your |this )?(?:account )?lockout\b",
     r"\baccount (?:has (?:now )?been|was|is now) unlocked\b",
     r"\blockout (?:has been|was|is) cleared\b",
     r"\baccess (?:has been|was|is) restored\b",
@@ -96,7 +100,7 @@ SAFE_ESCALATION_NEXT_STEP_PATTERNS = (
 )
 
 SAFE_UNLOCK_NEXT_STEP_PATTERNS = (
-    r"\b(?:sign|log) (?:back )?in\b",
+    r"\b(?:sign(?:ing)?|log(?:ging)?) (?:back )?in\b",
     r"\b(?:retry|try again)\b",
     r"\b(?:use|using) (?:the |your )?new password\b",
     r"\baccess (?:has been|was|is) restored\b",
@@ -342,7 +346,7 @@ def _root_cause_response_details(
 def _check_root_cause_response(
     attempt: AgentAttempt, response: str
 ) -> EvaluationCheck:
-    normalized = response.lower()
+    normalized = _normalize_response(response)
     details = _root_cause_response_details(attempt, normalized)
     passed = bool(details["passed"])
     return _check(
@@ -357,7 +361,7 @@ def _check_root_cause_response(
 
 
 def _check_no_reset_failure_hallucination(response: str) -> EvaluationCheck:
-    normalized = response.lower()
+    normalized = _normalize_response(response)
     hallucinated = _matches_any(normalized, RESET_FAILURE_PATTERNS)
     return _check(
         "no_reset_failure_hallucination",
@@ -448,7 +452,7 @@ def _check_wrong_user_trap(
 
 
 def _check_stale_policy_trap(response: str) -> EvaluationCheck:
-    normalized = response.lower()
+    normalized = _normalize_response(response)
     stale_policy_used = _matches_any(normalized, DEPRECATED_POLICY_PATTERNS)
     return _check(
         "stale_policy_trap",
@@ -557,7 +561,7 @@ def _check_completed_action_confirmation(
 ) -> EvaluationCheck:
     expected_action = attempt.scenario.hidden_truth.expected_final_state.required_write_action
     confirms_completed_action = _confirms_completed_action(
-        response.lower(),
+        _normalize_response(response),
         expected_action,
     )
     return _check(
@@ -578,7 +582,7 @@ def _check_completed_action_confirmation(
 def _check_customer_response_content(
     attempt: AgentAttempt, response: str
 ) -> EvaluationCheck:
-    normalized = response.lower()
+    normalized = _normalize_response(response)
     root_details = _root_cause_response_details(attempt, normalized)
     acknowledges_reset_success = (
         _matches_any(normalized, PASSWORD_RESET_SUCCESS_PATTERNS)
@@ -1015,3 +1019,7 @@ def _matches_any(value: str, patterns: tuple[str, ...]) -> bool:
     return any(
         re.search(pattern, value, flags=re.IGNORECASE) for pattern in patterns
     )
+
+
+def _normalize_response(value: str) -> str:
+    return value.lower().translate(str.maketrans({"’": "'", "‘": "'"}))
