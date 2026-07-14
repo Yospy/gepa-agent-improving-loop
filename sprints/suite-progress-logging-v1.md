@@ -43,6 +43,7 @@
 - Candidate-suite verification: 14 tests passed.
 - Full verification: 153 tests passed; compilation and `git diff --check` passed.
 - Deterministic four-scenario CLI smoke emitted eight progress lines and completed 4/4 with valid JSON.
+- Commit `5a48d53` was pushed and draft PR #2 was updated with the progress contract and outage clarification.
 
 ## Structured Review
 - Minimal correct change: one optional callback, one CLI stderr adapter, and terminal messages at existing control-flow exits.

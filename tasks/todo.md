@@ -9,7 +9,7 @@
 - [x] Keep progress on flushed stderr and JSON on stdout.
 - [x] Document the progress contract.
 - [x] Run verification and structured review.
-- [ ] Commit, push, and update draft PR #2.
+- [x] Commit, push, and update draft PR #2.
 
 ## GPT-5.5 Model Upgrade V1 (Sprint 20)
 - [x] Add a regression test for the shared model default.
