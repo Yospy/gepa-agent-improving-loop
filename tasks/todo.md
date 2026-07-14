@@ -1,7 +1,13 @@
 # Todo
 
 ## Active Sprint
-`sprints/suite-progress-logging-v1.md`
+`sprints/gpt-5-5-evaluator-parity-v1.md`
+
+## GPT-5.5 Evaluator Parity V1 (Sprint 22)
+- [x] Add exact GPT-5.5 phrase regressions and negative controls.
+- [x] Correct response normalization and narrow semantic patterns.
+- [x] Run focused, full, compile, and offline replay verification.
+- [x] Complete structured diff, safety, edge-case, and sprint review.
 
 ## Suite Progress Logging V1 (Sprint 21)
 - [x] Add failing library and CLI progress tests.
