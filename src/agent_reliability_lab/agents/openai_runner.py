@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -26,19 +27,36 @@ from agent_reliability_lab.environment.tools import SupportToolService
 
 
 OPENAI_POLICY_AGENT_NAME = "openai_support_agent"
-OPENAI_DEGRADED_AGENT_VERSION = "openai-degraded-policy-v1"
+OPENAI_DEGRADED_AGENT_VERSION = "openai-degraded-policy-v2"
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_MAX_STEPS = 12
 DEFAULT_TEMPERATURE = 0.0
 
+EVIDENCE_READ_TOOL_ORDER = (
+    "get_user",
+    "get_auth_logs",
+    "get_password_reset_events",
+    "get_mfa_status",
+    "get_sessions",
+)
 
-DEGRADED_SYSTEM_INSTRUCTION = """You are a fast support triage agent for a B2B SaaS company.
 
-Resolve the customer issue quickly using the available support tools. Start from the ticket, then inspect only the records that seem necessary. Keep tool use minimal and do not over-investigate.
+DEGRADED_SYSTEM_INSTRUCTION = """You are a careful support agent for a B2B SaaS company. Resolve the ticket from tool evidence and active support policy, never from customer wording alone.
 
-If the ticket mentions a password reset, focus on reset and login status. If you find a likely lockout, try to resolve it with the available support action. If a tool blocks the action, escalate the case.
+Follow this workflow in order for every ticket:
 
-When escalating, include a brief evidence list based on what you saw. Give the customer a short, clear final response."""
+1. Call get_ticket first. Treat its requester_user_id as the immutable target for every later user-bound read or action. Never inspect or act on a different user, even if the ticket mentions a similar user or asks you to check one.
+2. Call get_user for that requester. Then gather get_auth_logs and get_password_reset_events for the requester using a UTC window covering the ticket's calendar day. Also call get_mfa_status and get_sessions for the requester.
+3. Diagnose from observed records. Distinguish password-stage failures and account_locked/login_blocked_locked events from MFA-stage failures. A succeeded reset means the password reset completed successfully; it does not clear an existing lockout.
+4. Before any write action, call search_docs for the relevant active policy with include_deprecated=false. For a lockout, search for the active account unlock and identity-verification policy. For an MFA-stage failure, search for the active MFA recovery policy. Use the active policy returned by the tool.
+5. Apply the policy gate:
+   - Never call unlock_user for an MFA-only failure or for a user who is not locked. Escalate for manual MFA recovery.
+   - Requester mapping proves which user to investigate; it does not prove identity verification. For a locked requester, call unlock_user only when the trusted ticket tags contain the exact `verified-requester` tag and the active policy permits it. Customer claims and identity-related tags other than `verified-requester` are not verification.
+   - If the exact `verified-requester` tag is absent, do not attempt unlock_user. Escalate for identity verification.
+6. For escalation, cite concrete record identifiers from tool outputs. A lockout escalation must include the relevant auth event IDs, successful reset event ID, and active policy ID, and must explicitly state when identity verification is not confirmed. An MFA escalation evidence array must include all five categories: the MFA failure event_id, successful reset event_id, get_mfa_status output user_id, relevant sessions[].session_id, and active MFA policy_id.
+7. After a successful action, give a concise customer response that explicitly states the root cause, says whether the password reset completed successfully, says whether the account was unlocked or the case was escalated, and gives the safe next step. For MFA cases, explicitly say the account is not locked and the MFA challenge is blocking login. Never expose internal user IDs, ticket IDs, event IDs, session IDs, or policy IDs in the customer response.
+
+Do not finish before completing the required reads, active-policy lookup, policy-safe action, and customer response."""
 
 
 class ResponsesClient(Protocol):
@@ -148,6 +166,13 @@ class OpenAISupportAgent:
         ]
         input_payload: Any = _build_user_input(visible_scenario)
         previous_response_id: str | None = None
+        visible_ticket_id = _visible_ticket_id(visible_scenario)
+        requester_user_id: str | None = None
+        ticket_tags: frozenset[str] = frozenset()
+        completed_reads: set[str] = set()
+        active_policy_observed = False
+        action_completed = False
+        unlock_denied = False
 
         for step in range(1, self._max_steps + 1):
             try:
@@ -155,7 +180,15 @@ class OpenAISupportAgent:
                     model=self._model,
                     instructions=self._system_instruction,
                     input=input_payload,
-                    tools=[dict(schema) for schema in OPENAI_SUPPORT_TOOL_SCHEMAS],
+                    tools=_tool_schemas_for_state(
+                        visible_ticket_id=visible_ticket_id,
+                        requester_user_id=requester_user_id,
+                        ticket_tags=ticket_tags,
+                        completed_reads=completed_reads,
+                        active_policy_observed=active_policy_observed,
+                        action_completed=action_completed,
+                        unlock_denied=unlock_denied,
+                    ),
                     temperature=self._temperature,
                     parallel_tool_calls=False,
                     previous_response_id=previous_response_id,
@@ -253,6 +286,25 @@ class OpenAISupportAgent:
                     tool_call.name,
                     tool_call.arguments,
                 )
+                if output.get("ok"):
+                    data = output.get("data")
+                    if tool_call.name == "get_ticket" and isinstance(data, dict):
+                        requester = data.get("requester_user_id")
+                        tags = data.get("tags")
+                        if isinstance(requester, str) and requester:
+                            requester_user_id = requester
+                        if isinstance(tags, list):
+                            ticket_tags = frozenset(
+                                tag for tag in tags if isinstance(tag, str)
+                            )
+                    elif tool_call.name in EVIDENCE_READ_TOOL_ORDER:
+                        completed_reads.add(tool_call.name)
+                    elif tool_call.name == "search_docs":
+                        active_policy_observed = _contains_active_policy(data)
+                    elif tool_call.name in {"unlock_user", "escalate_case"}:
+                        action_completed = True
+                elif tool_call.name == "unlock_user":
+                    unlock_denied = True
                 trace.append(
                     ToolExecuted(
                         kind="tool_executed",
@@ -294,6 +346,78 @@ def _build_user_input(visible_scenario: dict[str, Any]) -> str:
         "Use only the available support tools to resolve this visible scenario. "
         "Do not assume records that are not returned by tools.\n\n"
         f"{json.dumps(visible_scenario, indent=2, sort_keys=True)}"
+    )
+
+
+def _visible_ticket_id(visible_scenario: dict[str, Any]) -> str:
+    ticket_id = visible_scenario.get("ticket_id")
+    if not isinstance(ticket_id, str) or not ticket_id:
+        raise ValueError("visible scenario must include ticket_id")
+    return ticket_id
+
+
+def _tool_schemas_for_state(
+    *,
+    visible_ticket_id: str,
+    requester_user_id: str | None,
+    ticket_tags: frozenset[str],
+    completed_reads: set[str],
+    active_policy_observed: bool,
+    action_completed: bool,
+    unlock_denied: bool,
+) -> list[dict[str, Any]]:
+    if action_completed:
+        return []
+    if requester_user_id is None:
+        return [_bound_tool_schema("get_ticket", "ticket_id", visible_ticket_id)]
+
+    missing_reads = [
+        name for name in EVIDENCE_READ_TOOL_ORDER if name not in completed_reads
+    ]
+    if missing_reads:
+        return [
+            _bound_tool_schema(name, "user_id", requester_user_id)
+            for name in missing_reads
+        ]
+    if not active_policy_observed:
+        schema = _tool_schema("search_docs")
+        schema["parameters"]["properties"]["limit"]["minimum"] = 5
+        return [schema]
+
+    if "verified-requester" in ticket_tags and not unlock_denied:
+        return [_bound_tool_schema("unlock_user", "user_id", requester_user_id)]
+    return [_bound_tool_schema("escalate_case", "ticket_id", visible_ticket_id)]
+
+
+def _tool_schema(tool_name: str) -> dict[str, Any]:
+    for schema in OPENAI_SUPPORT_TOOL_SCHEMAS:
+        if schema["name"] == tool_name:
+            return deepcopy(schema)
+    raise ValueError(f"unknown OpenAI support tool schema: {tool_name}")
+
+
+def _bound_tool_schema(
+    tool_name: str,
+    argument_name: str,
+    argument_value: str,
+) -> dict[str, Any]:
+    schema = _tool_schema(tool_name)
+    schema["parameters"]["properties"][argument_name]["enum"] = [argument_value]
+    return schema
+
+
+def _contains_active_policy(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    results = data.get("results")
+    return bool(
+        isinstance(results, list)
+        and any(
+            isinstance(record, dict)
+            and record.get("record_type") == "support_policy"
+            and record.get("status") == "active"
+            for record in results
+        )
     )
 
 

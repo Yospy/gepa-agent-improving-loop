@@ -1,7 +1,42 @@
 # Todo
 
 ## Active Sprint
-`sprints/github-publication-v1.md`
+`sprints/project-results-publication-v1.md`
+
+## Project Results Publication V1 (Sprint 19)
+- [x] Add the approved project name and description.
+- [x] Add reproducible initial and latest live-agent metrics.
+- [x] Review the complete implementation and documentation diff.
+- [x] Run full, compile, diff, and publication-safety verification.
+- [x] Commit and push the intended change set.
+- [x] Update repository metadata and open a draft PR.
+
+## Evaluator + GEPA Reliability V1 (Sprint 18)
+- [x] Correct evaluator paraphrase and exact-identifier semantics.
+- [x] Separate completed-action confirmation from safe-next-step quality.
+- [x] Align reflection with runtime invariants and mutable behavior.
+- [x] Add fatal-eligibility comparison and conservative score tolerance.
+- [x] Add bounded multi-child GEPA exploration and history.
+- [x] Run targeted, full, compile, and controlled live verification.
+- [x] Complete structured diff and side-effect review.
+
+## OpenAI Agent Baseline Tuning V1 (Sprint 17)
+- [x] Diagnose the failed live four-scenario baseline.
+- [x] Compare the weak policy with the deterministic reference workflow.
+- [x] Implement an evidence-first live policy.
+- [x] Run only the live agent against all four scenarios and reach 4/4.
+- [x] Nerf one non-safety instruction detail.
+- [x] Rerun only the live four-scenario suite and record the outcome.
+- [x] Complete diff, side-effect, edge-case, and sprint-intent review.
+
+## GEPA Quality Hardening V1 (Sprint 16)
+- [x] Correct identifier validation without weakening hidden-ID protection.
+- [x] Add actionable evidence-call diagnostics.
+- [x] Recognize natural reset-success wording.
+- [x] Strengthen reflection workflow instructions.
+- [x] Add one guided, audited mutation retry.
+- [x] Preserve history compatibility and update CLI/docs.
+- [x] Run targeted/full/compile verification and structured review.
 
 ## GitHub Publication V1
 - [x] Add the sprint and executable publication plan.

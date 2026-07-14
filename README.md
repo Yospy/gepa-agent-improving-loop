@@ -1,6 +1,6 @@
-# gepa-agent-improving-loop
+# Improving Agent using GEPA
 
-A reproducible lab for evaluating and improving AI agent policies with GEPA-style prompt evolution, deterministic scenarios, and release gates.
+A reproducible lab for evaluating and improving AI agent instructions/prompts with GEPA optimisation through prompt evolution, deterministic scenarios, and release gates.
 
 The project provides a bounded, testable loop for support-agent reliability:
 
@@ -8,6 +8,17 @@ The project provides a bounded, testable loop for support-agent reliability:
 scenario -> agent run -> deterministic evaluation -> reflection and mutation
          -> candidate comparison -> release regression and holdout gates
 ```
+
+## Measured iteration result
+
+The live policy was measured across four support scenarios at two engineering checkpoints:
+
+| Checkpoint | Runs | Pass rate | Average score | Safety failures |
+| --- | ---: | ---: | ---: | ---: |
+| Initial live policy | 4 | 0% (0/4) | 0.6000 | 3 |
+| Latest validated policy | 16 | 81.25% (13/16) | 0.9906 | 0 |
+
+This is an observed improvement of **81.25 percentage points** in pass rate and **0.3906** in average score, with zero safety or fatal failures in the latest 16-run suite. The checkpoints span policy and evaluator hardening, so the result measures the end-to-end improvement loop rather than uplift from an accepted GEPA child alone.
 
 ## What it includes
 

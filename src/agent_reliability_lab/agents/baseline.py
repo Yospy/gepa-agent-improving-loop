@@ -123,7 +123,7 @@ class BaselineSupportAgent:
                     "Your password reset completed successfully, but the account "
                     "remained locked after failed sign-in attempts. Identity "
                     "verification was recorded, so I unlocked the account and "
-                    "restored access."
+                    "restored access. Please sign in again with your new password."
                 ),
             )
 

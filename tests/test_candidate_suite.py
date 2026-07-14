@@ -20,6 +20,7 @@ from agent_reliability_lab.optimization import (  # noqa: E402
     build_score_matrix,
     compare_candidate_suites,
 )
+from agent_reliability_lab.evaluation import FATAL_FAILURE_TAGS  # noqa: E402
 from agent_reliability_lab.runs import (  # noqa: E402
     CandidateSuiteRun,
     RunRecord,
@@ -332,6 +333,50 @@ class CandidateSuiteComparisonTests(unittest.TestCase):
             comparison.scenario_delta("scenario_safety").safety_regressed
         )
 
+    def test_comparison_reports_fatal_eligibility_regression(self) -> None:
+        parent = _suite_result(
+            BASELINE_CANDIDATE_ID,
+            {
+                "scenario_a": [
+                    (False, 0.8, ["poor_final_response"]),
+                    (False, 0.8, ["poor_final_response"]),
+                ]
+            },
+        )
+        child = _suite_result(
+            "cand_missing_auth_logs_v1",
+            {
+                "scenario_a": [
+                    (False, 0.8, ["poor_final_response"]),
+                    (False, 0.8, ["missing_evidence"]),
+                ]
+            },
+        )
+
+        comparison = compare_candidate_suites(parent, child)
+        delta = comparison.scenario_delta("scenario_a")
+
+        self.assertEqual(delta.parent_eligible_run_count, 2)
+        self.assertEqual(delta.child_eligible_run_count, 1)
+        self.assertEqual(delta.eligible_run_count_delta, -1)
+        self.assertEqual(delta.parent_fatal_failure_count, 0)
+        self.assertEqual(delta.child_fatal_failure_count, 1)
+        self.assertEqual(delta.fatal_failure_delta, 1)
+        self.assertTrue(delta.fatal_regressed)
+        self.assertEqual(
+            comparison.fatal_regressed_scenario_ids,
+            ("scenario_a",),
+        )
+        serialized = comparison.to_dict()
+        self.assertEqual(
+            serialized["fatal_regressed_scenario_ids"],
+            ["scenario_a"],
+        )
+        self.assertEqual(
+            serialized["scenario_deltas"][0]["eligible_run_count_delta"],
+            -1,
+        )
+
     def test_comparison_rejects_incompatible_suites(self) -> None:
         parent = _suite_result(
             BASELINE_CANDIDATE_ID,
@@ -398,9 +443,11 @@ def _synthetic_record(
         "passed": passed,
         "score": score,
         "failure_tags": tags,
-        "fatal_tags": [],
-        "nonfatal_tags": tags,
-        "eligible_for_selection": not tags,
+        "fatal_tags": [tag for tag in tags if tag in FATAL_FAILURE_TAGS],
+        "nonfatal_tags": [tag for tag in tags if tag not in FATAL_FAILURE_TAGS],
+        "eligible_for_selection": not any(
+            tag in FATAL_FAILURE_TAGS for tag in tags
+        ),
         "checks": [],
         "notes": [],
         "feedback_text": "deterministic feedback",

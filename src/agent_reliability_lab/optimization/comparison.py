@@ -25,8 +25,15 @@ class ScenarioScoreDelta:
     parent_safety_failure_count: int
     child_safety_failure_count: int
     safety_failure_delta: int
+    parent_eligible_run_count: int
+    child_eligible_run_count: int
+    eligible_run_count_delta: int
+    parent_fatal_failure_count: int
+    child_fatal_failure_count: int
+    fatal_failure_delta: int
     pass_regressed: bool
     safety_regressed: bool
+    fatal_regressed: bool
     improved: bool
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,6 +50,7 @@ class CandidateSuiteComparison:
     regressed_scenario_ids: tuple[str, ...]
     improved_scenario_ids: tuple[str, ...]
     safety_regressed_scenario_ids: tuple[str, ...]
+    fatal_regressed_scenario_ids: tuple[str, ...]
 
     def scenario_delta(self, scenario_id: str) -> ScenarioScoreDelta:
         for delta in self.scenario_deltas:
@@ -63,6 +71,9 @@ class CandidateSuiteComparison:
             "improved_scenario_ids": list(self.improved_scenario_ids),
             "safety_regressed_scenario_ids": list(
                 self.safety_regressed_scenario_ids
+            ),
+            "fatal_regressed_scenario_ids": list(
+                self.fatal_regressed_scenario_ids
             ),
         }
 
@@ -101,6 +112,11 @@ def compare_candidate_suites(
             delta.scenario_id
             for delta in scenario_deltas
             if delta.safety_regressed
+        ),
+        fatal_regressed_scenario_ids=tuple(
+            delta.scenario_id
+            for delta in scenario_deltas
+            if delta.fatal_regressed
         ),
     )
 
@@ -144,6 +160,14 @@ def _scenario_delta(scenario_id: str, parent: Any, child: Any) -> ScenarioScoreD
     pass_rate_delta = round(child.pass_rate - parent.pass_rate, 4)
     average_score_delta = round(child.average_score - parent.average_score, 4)
     safety_failure_delta = child.safety_failure_count - parent.safety_failure_count
+    eligible_run_count_delta = (
+        child.eligible_run_count - parent.eligible_run_count
+    )
+    parent_fatal_failure_count = parent.run_count - parent.eligible_run_count
+    child_fatal_failure_count = child.run_count - child.eligible_run_count
+    fatal_failure_delta = (
+        child_fatal_failure_count - parent_fatal_failure_count
+    )
     return ScenarioScoreDelta(
         scenario_id=scenario_id,
         parent_run_count=parent.run_count,
@@ -157,10 +181,19 @@ def _scenario_delta(scenario_id: str, parent: Any, child: Any) -> ScenarioScoreD
         parent_safety_failure_count=parent.safety_failure_count,
         child_safety_failure_count=child.safety_failure_count,
         safety_failure_delta=safety_failure_delta,
+        parent_eligible_run_count=parent.eligible_run_count,
+        child_eligible_run_count=child.eligible_run_count,
+        eligible_run_count_delta=eligible_run_count_delta,
+        parent_fatal_failure_count=parent_fatal_failure_count,
+        child_fatal_failure_count=child_fatal_failure_count,
+        fatal_failure_delta=fatal_failure_delta,
         pass_regressed=pass_rate_delta < 0,
         safety_regressed=safety_failure_delta > 0,
+        fatal_regressed=eligible_run_count_delta < 0,
         improved=(
             pass_rate_delta > 0
             or (pass_rate_delta == 0 and average_score_delta > 0)
+            or safety_failure_delta < 0
+            or eligible_run_count_delta > 0
         ),
     )

@@ -16,6 +16,7 @@ from agent_reliability_lab.optimization.candidates import (  # noqa: E402
 )
 from agent_reliability_lab.optimization.reflection import (  # noqa: E402
     MAX_SYSTEM_INSTRUCTION_LENGTH,
+    REFLECTION_INSTRUCTIONS,
     OpenAIReflectionClient,
     build_reflection_bundle,
     create_child_candidate,
@@ -59,6 +60,48 @@ class FakeResponsesClient:
 
 
 class GEPAReflectionTests(unittest.TestCase):
+    def test_public_tool_name_does_not_trigger_identifier_memorization(self) -> None:
+        parent = DEFAULT_CANDIDATE_POOL.require(PARENT_ID)
+        record = _record("run_1", "scenario_a", score=0.4, passed=False)
+        record.evaluation["feedback_text"] = "Missing evidence ID: mfa_status"
+        bundle = build_reflection_bundle(parent, _suite([record]))
+        client = FakeReflectionClient(
+            '{"analysis":"Read MFA state.",'
+            '"system_instruction":"Call get_mfa_status before diagnosing MFA."}'
+        )
+
+        result = reflect_and_create_child(
+            parent,
+            bundle,
+            client,
+            mutation_id_factory=lambda: "mutation_fixed",
+            clock=lambda: FIXED_NOW,
+        )
+
+        self.assertTrue(result.succeeded)
+        self.assertIsNotNone(result.child)
+
+    def test_exact_optimizer_identifier_remains_blocked(self) -> None:
+        parent = DEFAULT_CANDIDATE_POOL.require(PARENT_ID)
+        record = _record("run_1", "scenario_a", score=0.4, passed=False)
+        record.evaluation["feedback_text"] = "Missing evidence ID: mfa_status"
+        bundle = build_reflection_bundle(parent, _suite([record]))
+        client = FakeReflectionClient(
+            '{"analysis":"Copy an identifier.",'
+            '"system_instruction":"Always special-case mfa_status."}'
+        )
+
+        result = reflect_and_create_child(
+            parent,
+            bundle,
+            client,
+            mutation_id_factory=lambda: "mutation_fixed",
+            clock=lambda: FIXED_NOW,
+        )
+
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.error.error_type, "identifier_memorization")
+
     def test_candidate_pool_extension_is_immutable_and_reuses_validation(self) -> None:
         parent = DEFAULT_CANDIDATE_POOL.require(PARENT_ID)
         child = Candidate(
@@ -145,6 +188,48 @@ class GEPAReflectionTests(unittest.TestCase):
         self.assertEqual(payload["examples"][0]["feedback_text"], "feedback run_1")
         self.assertNotIn("hidden_truth", payload)
         self.assertNotIn("agent_visible_scenario", payload["examples"][0])
+
+    def test_retry_feedback_is_serialized_without_hidden_container(self) -> None:
+        parent = DEFAULT_CANDIDATE_POOL.require(PARENT_ID)
+        bundle = build_reflection_bundle(
+            parent,
+            _suite([_record("run_1", "scenario_a", score=0.4, passed=False)]),
+        )
+        retry_bundle = bundle.with_revision_feedback(
+            "Previous proposal was rejected as unchanged_instruction."
+        )
+
+        payload = json.loads(format_reflection_input(retry_bundle))
+
+        self.assertEqual(
+            payload["revision_feedback"],
+            "Previous proposal was rejected as unchanged_instruction.",
+        )
+        self.assertNotIn("hidden_truth", payload)
+
+    def test_reflection_instructions_preserve_runtime_invariants_and_focus_mutation(
+        self,
+    ) -> None:
+        normalized_instructions = " ".join(REFLECTION_INSTRUCTIONS.lower().split())
+        required_phrases = (
+            "runtime-enforced invariants",
+            "ticket-first requester binding",
+            "required evidence tool calls",
+            "active-policy lookup",
+            "allowed write capability",
+            "event time-window selection",
+            "diagnosis language",
+            "policy query quality",
+            "escalation evidence composition",
+            "explicit completed-action confirmation",
+            "safe next steps",
+        )
+
+        for phrase in required_phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized_instructions)
+        self.assertIn("preserve", normalized_instructions)
+        self.assertIn("not redesign", normalized_instructions)
 
     def test_mutation_parser_requires_exact_nonempty_json_contract(self) -> None:
         proposal = parse_mutation_proposal(

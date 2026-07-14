@@ -288,14 +288,16 @@ parameter and sends only `Scenario.to_agent_visible_dict()` as user input.
 Hidden scenario truth is never included in model input. The runner disables
 parallel tool calls because the support environment is stateful.
 
-The default OpenAI candidate is intentionally degraded:
+The default OpenAI candidate is deliberately bounded rather than unsafe:
 
 ```text
 cand_openai_degraded_v1
 ```
 
-It favors quick triage and minimal tool use, giving GEPA room to improve
-evidence gathering, policy lookup, and safe escalation behavior.
+The runner mechanically sequences ticket binding, requester-scoped evidence
+reads, active-policy lookup, and the policy-allowed write capability. The V2
+candidate intentionally omits automatic final-response revision, giving GEPA
+response-quality headroom without weakening tool or action safety.
 
 Run the degraded OpenAI candidate live only when `OPENAI_API_KEY` is configured
 and the optional `openai` dependency is installed:
@@ -365,10 +367,10 @@ bounded prompt-optimization loop:
 ```text
 complete parent suite
 -> one deterministic reflection example per scenario
--> complete replacement system instruction
--> validated child candidate
--> equal-coverage child suite
--> conservative accept/reject decision
+-> one or more validated replacement instructions
+-> equal-coverage child suites evaluated serially
+-> conservative accept/reject decisions
+-> best acceptable child selected deterministically
 -> next generation or stop
 ```
 
@@ -383,11 +385,36 @@ Generated candidates also carry optimizer metadata for auditability: mutation
 ID, analysis, source run IDs, timestamp, and parent/child instruction hashes.
 Mutation validation rejects empty, unchanged, malformed, oversized, and
 scenario/run/record-identifier-memorizing instructions before any child rollout.
+Identifier checks use complete underscore-aware tokens, so public tool names
+such as `get_mfa_status` remain valid while an exact hidden record identifier
+such as `mfa_status` remains blocked.
 
-The V1 acceptance policy is deliberately monotonic. A child is accepted only
-when at least one scenario improves and no scenario regresses in pass rate,
-average score, or safety-failure count. An accepted child becomes the next
-parent; an unchanged or regressing child stops the V1 loop.
+Evaluator feedback distinguishes a missing tool call from a successful call
+whose requester, query, time window, or filters excluded required evidence. It
+also separates completed-action confirmation from safe-next-step content at
+half weight each, preserving the original total score weight. Reflection keeps
+runtime-enforced workflow invariants fixed and focuses mutations on event
+windows, diagnosis, policy-query quality, escalation evidence, action
+confirmation, and customer-facing next steps.
+
+If the model returns malformed output or a locally invalid instruction, GEPA
+returns that validation error once and permits one corrected proposal by
+default. It does not retry reflection transport failures. Optimization history
+keeps all ordered `mutation_attempts`; the existing `mutation` field remains the
+terminal attempt for compatibility.
+
+`children_per_generation` bounds how many valid children are evaluated for one
+logical generation. Every child is recorded in `child_trials`; the existing
+top-level generation fields describe the selected trial for compatibility. A
+rejected child can guide a materially different proposal, so one weak valid
+child no longer stops the search immediately.
+
+The optimization acceptance policy remains conservative. A child is rejected
+for any per-scenario safety, fatal-eligibility, or pass-rate regression. A
+nonfatal average-score regression beyond `0.05` is also rejected; smaller score
+movement is tolerated only when another measured dimension improves. The best
+acceptable child becomes the next parent. Release certification remains
+strict and does not inherit this optimization-only score tolerance.
 The reported `final_candidate_id` is the best accepted optimization parent, not
 a release-certified candidate; holdout and release gates remain out of scope.
 
@@ -398,17 +425,21 @@ PYTHONPATH=src python3 -m agent_reliability_lab.optimization.gepa \
   --candidate-id cand_openai_degraded_v1 \
   --scenario-dir data/scenarios \
   --repeat-count 2 \
-  --max-generations 3
+  --max-generations 3 \
+  --max-mutation-attempts 2 \
+  --children-per-generation 2
 ```
 
 Individual rollouts are written to `.runs/` and one optimization history is
 written to `.gepa-runs/`. Pass `--no-persist` to disable both. The CLI loads the
 repo-root `.env`; importing the library never does. Automated tests inject fake
 reflection and suite clients and make no network calls.
+Set `--max-mutation-attempts 1` to disable mutation correction retries.
+Set `--children-per-generation 1` to recover single-child behavior.
 
 Phase 14 intentionally does not add train/regression/holdout partitions,
-release certification, parallel children, crossover, checkpoint resume, or a
-UI. Those are hardening and release concerns for a later sprint.
+release certification, parallel child execution, crossover, checkpoint resume,
+or a UI. Those are hardening and release concerns for a later sprint.
 
 ## GEPA Release Gate
 

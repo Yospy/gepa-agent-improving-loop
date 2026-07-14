@@ -143,7 +143,10 @@ DEFAULT_CANDIDATE_POOL = CandidatePool(
             parent_id=None,
             generation=0,
             kind="openai_policy",
-            description="Intentionally weak OpenAI policy prompt for GEPA measurement.",
+            description=(
+                "Safety-gated OpenAI policy with reduced response QA for GEPA "
+                "measurement."
+            ),
             payload={
                 "system_instruction": DEGRADED_SYSTEM_INSTRUCTION,
             },
