@@ -3,7 +3,7 @@
 ## Scope
 - Change the default OpenAI model from `gpt-4.1-mini` to `gpt-5.5`.
 - Apply the default to both the evaluated support agent and GEPA reflection teacher.
-- Update the live-run documentation and existing draft PR.
+- Update the live-run documentation and publish a follow-up draft PR.
 
 ## Assumptions
 - The explicit requested target is `gpt-5.5`, even though OpenAI currently documents GPT-5.6 as newer.
@@ -20,7 +20,7 @@
 2. Update the shared model constant and live-run documentation.
 3. Run targeted, full, compile, CLI, and diff verification.
 4. Review model provenance, overrides, side effects, and sprint alignment.
-5. Commit, push, and update the existing draft pull request.
+5. Commit, push, and open a follow-up draft pull request.
 
 ## Risks
 - GPT-5.5 may have different latency, cost, or instruction-following behavior.
@@ -41,7 +41,7 @@
 - Targeted verification: 45 tests passed.
 - Full verification: 150 tests passed; compilation, both CLI help commands, and `git diff --check` passed.
 - No live API request was made; fresh GPT-5.5 metrics must come from the user's live suite.
-- Commit `ae418be` was pushed and draft PR #1 was updated with the model change and fresh-run caveat.
+- PR #1 merged before the model commits were pushed; follow-up draft PR #2 contains the clean GPT-5.5-only diff and fresh-run caveat.
 
 ## Structured Review
 - Minimal correct change: one shared default constant, one regression assertion, and one active documentation example changed.

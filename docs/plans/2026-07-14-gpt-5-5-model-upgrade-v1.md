@@ -39,5 +39,5 @@
 1. Run targeted and full tests.
 2. Run compilation, CLI help, and diff checks.
 3. Review provenance, compatibility, side effects, and edge cases.
-4. Commit and push to the existing PR branch.
-5. Update draft PR #1 with the GPT-5.5 change and validation.
+4. Commit and push the GPT-5.5 branch.
+5. Open a follow-up draft PR to `main` with the GPT-5.5 change and validation.
