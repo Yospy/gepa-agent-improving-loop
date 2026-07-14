@@ -41,6 +41,9 @@
 - Full offline verification: 149 tests passed.
 - Source and tests compile cleanly; `git diff --check` is clean.
 - Credential-pattern scan is clean; `.env`, `.runs/`, and `.gepa-runs/` remain ignored.
+- Published branch: `codex/gepa-reliability-results`.
+- Draft pull request: `https://github.com/Yospy/gepa-agent-improving-loop/pull/1`.
+- GitHub repository description matches the approved project description.
 
 ## Structured Review
 - Minimal correct change: public metrics are confined to the README; implementation changes remain those already validated in Sprints 16–18.

@@ -8,8 +8,8 @@
 - [x] Add reproducible initial and latest live-agent metrics.
 - [x] Review the complete implementation and documentation diff.
 - [x] Run full, compile, diff, and publication-safety verification.
-- [ ] Commit and push the intended change set.
-- [ ] Update repository metadata and open a draft PR.
+- [x] Commit and push the intended change set.
+- [x] Update repository metadata and open a draft PR.
 
 ## Evaluator + GEPA Reliability V1 (Sprint 18)
 - [x] Correct evaluator paraphrase and exact-identifier semantics.
