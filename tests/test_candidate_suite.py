@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import sys
@@ -94,6 +94,72 @@ class CandidateSuiteTests(unittest.TestCase):
         self.assertIsNotNone(result.matrix)
         self.assertEqual(len(result.matrix.cells), 4)
 
+    def test_suite_reports_start_and_terminal_progress_for_each_rollout(self) -> None:
+        messages: list[str] = []
+        calls = 0
+
+        def fake_runner(candidate_id: str, **kwargs) -> RunRecord:
+            nonlocal calls
+            calls += 1
+            scenario = load_scenario(kwargs["scenario_path"])
+            return _synthetic_record(
+                candidate_id=candidate_id,
+                scenario_id=scenario.metadata.scenario_id,
+                run_id=f"run_{calls}",
+                passed=calls == 1,
+                score=1.0 if calls == 1 else 0.9,
+            )
+
+        run_candidate_suite(
+            "cand_openai_degraded_v1",
+            ScenarioSuiteSpec(
+                name="training",
+                scenario_paths=SCENARIO_PATHS[:2],
+            ),
+            persist=False,
+            scenario_runner=fake_runner,
+            progress_callback=messages.append,
+        )
+
+        self.assertEqual(
+            messages,
+            [
+                "[1/2] starting scenario=support_login_lockout_v1 attempt=1/1",
+                "[1/2] completed scenario=support_login_lockout_v1 "
+                "attempt=1/1 passed=true score=1.0000",
+                "[2/2] starting scenario=support_mfa_blocker_v1 attempt=1/1",
+                "[2/2] completed scenario=support_mfa_blocker_v1 "
+                "attempt=1/1 passed=false score=0.9000",
+            ],
+        )
+
+    def test_suite_reports_rollout_exception_progress(self) -> None:
+        messages: list[str] = []
+
+        def fake_runner(candidate_id: str, **kwargs) -> RunRecord:
+            raise RuntimeError("runner exploded")
+
+        result = run_candidate_suite(
+            "cand_openai_degraded_v1",
+            ScenarioSuiteSpec(
+                name="training",
+                scenario_paths=SCENARIO_PATHS[:1],
+            ),
+            persist=False,
+            scenario_runner=fake_runner,
+            progress_callback=messages.append,
+        )
+
+        self.assertFalse(result.complete)
+        self.assertEqual(
+            messages,
+            [
+                "[1/1] starting scenario=support_login_lockout_v1 attempt=1/1",
+                "[1/1] failed scenario=support_login_lockout_v1 "
+                "attempt=1/1 error=RuntimeError",
+            ],
+        )
+
     def test_suite_continues_after_rollout_exception(self) -> None:
         calls: list[str] = []
 
@@ -133,6 +199,7 @@ class CandidateSuiteTests(unittest.TestCase):
 
     def test_non_comparable_agent_failure_blocks_matrix(self) -> None:
         calls = 0
+        messages: list[str] = []
 
         def fake_runner(candidate_id: str, **kwargs) -> RunRecord:
             nonlocal calls
@@ -153,6 +220,7 @@ class CandidateSuiteTests(unittest.TestCase):
             ),
             persist=False,
             scenario_runner=fake_runner,
+            progress_callback=messages.append,
         )
 
         self.assertEqual(len(result.records), 4)
@@ -161,6 +229,11 @@ class CandidateSuiteTests(unittest.TestCase):
         self.assertIn("api_error", result.errors[0].message)
         self.assertFalse(result.complete)
         self.assertIsNone(result.matrix)
+        self.assertIn(
+            "[1/4] failed scenario=support_login_lockout_v1 "
+            "attempt=1/1 agent_failure=api_error",
+            messages,
+        )
 
     def test_suite_result_summary_is_compact_and_deterministic(self) -> None:
         result = CandidateSuiteRun(
@@ -197,13 +270,20 @@ class CandidateSuiteTests(unittest.TestCase):
             suite_name="scenarios",
         )
         stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        def fake_suite(*args, **kwargs):
+            kwargs["progress_callback"](
+                "[1/1] starting scenario=scenario_a attempt=1/1"
+            )
+            return result
 
         with patch.object(
             suite_module,
             "run_candidate_suite",
-            return_value=result,
+            side_effect=fake_suite,
         ) as run_suite:
-            with redirect_stdout(stdout):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
                 exit_code = suite_module.main(
                     [
                         "--candidate-id",
@@ -232,6 +312,10 @@ class CandidateSuiteTests(unittest.TestCase):
         self.assertEqual(len(called_spec.scenario_paths), 4)
         self.assertFalse(run_suite.call_args.kwargs["persist"])
         self.assertEqual(run_suite.call_args.kwargs["output_dir"], ".test-runs")
+        self.assertEqual(
+            stderr.getvalue(),
+            "[1/1] starting scenario=scenario_a attempt=1/1\n",
+        )
 
     def test_cli_prints_json_for_preflight_failure(self) -> None:
         stdout = io.StringIO()

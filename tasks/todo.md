@@ -1,7 +1,15 @@
 # Todo
 
 ## Active Sprint
-`sprints/gpt-5-5-model-upgrade-v1.md`
+`sprints/suite-progress-logging-v1.md`
+
+## Suite Progress Logging V1 (Sprint 21)
+- [x] Add failing library and CLI progress tests.
+- [x] Add per-rollout start and terminal progress messages.
+- [x] Keep progress on flushed stderr and JSON on stdout.
+- [x] Document the progress contract.
+- [x] Run verification and structured review.
+- [ ] Commit, push, and update draft PR #2.
 
 ## GPT-5.5 Model Upgrade V1 (Sprint 20)
 - [x] Add a regression test for the shared model default.

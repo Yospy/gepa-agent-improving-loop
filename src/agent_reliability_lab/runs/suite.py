@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 from pathlib import Path
+import sys
 from typing import Any, Callable, Protocol
 
 from agent_reliability_lab.environment import (
@@ -42,6 +43,7 @@ NON_COMPARABLE_AGENT_FAILURES = frozenset(
 )
 
 Clock = Callable[[], datetime]
+ProgressCallback = Callable[[str], None]
 
 
 class CandidateScenarioRunner(Protocol):
@@ -128,6 +130,7 @@ def run_candidate_suite(
     persist: bool = True,
     clock: Clock | None = None,
     scenario_runner: CandidateScenarioRunner = run_candidate_scenario,
+    progress_callback: ProgressCallback | None = None,
 ) -> CandidateSuiteRun:
     """Run a candidate over every configured scenario and repeat slot."""
 
@@ -137,9 +140,17 @@ def run_candidate_suite(
     expected_run_count = len(scenarios) * suite.repeat_count
     records: list[RunRecord] = []
     errors: list[SuiteRunError] = []
+    run_number = 0
 
     for scenario_path, scenario_id in scenarios:
         for attempt_number in range(1, suite.repeat_count + 1):
+            run_number += 1
+            _report_progress(
+                progress_callback,
+                f"[{run_number}/{expected_run_count}] "
+                f"starting scenario={scenario_id} "
+                f"attempt={attempt_number}/{suite.repeat_count}",
+            )
             try:
                 record = scenario_runner(
                     candidate_id,
@@ -151,6 +162,13 @@ def run_candidate_suite(
                     persist=persist,
                 )
             except Exception as exc:
+                _report_progress(
+                    progress_callback,
+                    f"[{run_number}/{expected_run_count}] failed "
+                    f"scenario={scenario_id} "
+                    f"attempt={attempt_number}/{suite.repeat_count} "
+                    f"error={type(exc).__name__}",
+                )
                 errors.append(
                     SuiteRunError(
                         scenario_id=scenario_id,
@@ -164,6 +182,13 @@ def run_candidate_suite(
             records.append(record)
             mismatch = _record_mismatch(record, candidate_id, scenario_id)
             if mismatch is not None:
+                _report_progress(
+                    progress_callback,
+                    f"[{run_number}/{expected_run_count}] invalid "
+                    f"scenario={scenario_id} "
+                    f"attempt={attempt_number}/{suite.repeat_count} "
+                    "error=record_mismatch",
+                )
                 errors.append(
                     SuiteRunError(
                         scenario_id=scenario_id,
@@ -174,6 +199,13 @@ def run_candidate_suite(
                 )
                 continue
             if record.agent_failure_reason in NON_COMPARABLE_AGENT_FAILURES:
+                _report_progress(
+                    progress_callback,
+                    f"[{run_number}/{expected_run_count}] failed "
+                    f"scenario={scenario_id} "
+                    f"attempt={attempt_number}/{suite.repeat_count} "
+                    f"agent_failure={record.agent_failure_reason}",
+                )
                 errors.append(
                     SuiteRunError(
                         scenario_id=scenario_id,
@@ -185,6 +217,16 @@ def run_candidate_suite(
                         ),
                     )
                 )
+                continue
+
+            _report_progress(
+                progress_callback,
+                f"[{run_number}/{expected_run_count}] completed "
+                f"scenario={scenario_id} "
+                f"attempt={attempt_number}/{suite.repeat_count} "
+                f"passed={str(bool(record.evaluation.get('passed'))).lower()} "
+                f"score={_score_text(record.evaluation.get('score'))}",
+            )
 
     matrix = None
     if not errors and len(records) == expected_run_count:
@@ -206,6 +248,24 @@ def run_candidate_suite(
         errors=tuple(errors),
         matrix=matrix,
     )
+
+
+def _report_progress(
+    progress_callback: ProgressCallback | None,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(message)
+
+
+def _score_text(value: Any) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value):.4f}"
+    return "n/a"
+
+
+def _stderr_progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _validated_scenarios(
@@ -287,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             suite,
             output_dir=args.output_dir,
             persist=not args.no_persist,
+            progress_callback=_stderr_progress,
         )
     except (OSError, KeyError, ValueError) as exc:
         print(

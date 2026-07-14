@@ -352,8 +352,11 @@ PYTHONPATH=src python3 -m agent_reliability_lab.runs.suite \
 
 The suite command writes individual run records unless `--no-persist` is used
 and prints a compact JSON summary containing completeness, run IDs, errors, and
-the score matrix. Automated tests use deterministic candidates or injected
-fake runners and never call the network.
+the score matrix. During execution it prints flushed per-rollout start and
+terminal status lines to stderr, including the run index, scenario, attempt,
+pass result, and score. Stdout remains reserved for the final parseable JSON.
+Automated tests use deterministic candidates or injected fake runners and never
+call the network.
 
 `compare_candidate_suites()` compares two complete, coverage-matched suite
 results by scenario. It reports pass-rate, score, and safety deltas plus
