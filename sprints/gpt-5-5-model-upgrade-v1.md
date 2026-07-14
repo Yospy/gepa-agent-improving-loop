@@ -41,6 +41,7 @@
 - Targeted verification: 45 tests passed.
 - Full verification: 150 tests passed; compilation, both CLI help commands, and `git diff --check` passed.
 - No live API request was made; fresh GPT-5.5 metrics must come from the user's live suite.
+- Commit `ae418be` was pushed and draft PR #1 was updated with the model change and fresh-run caveat.
 
 ## Structured Review
 - Minimal correct change: one shared default constant, one regression assertion, and one active documentation example changed.
