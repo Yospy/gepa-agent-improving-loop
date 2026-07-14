@@ -28,7 +28,7 @@ from agent_reliability_lab.environment.tools import SupportToolService
 
 OPENAI_POLICY_AGENT_NAME = "openai_support_agent"
 OPENAI_DEGRADED_AGENT_VERSION = "openai-degraded-policy-v2"
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_MAX_STEPS = 12
 DEFAULT_TEMPERATURE = 0.0
 

@@ -1,7 +1,15 @@
 # Todo
 
 ## Active Sprint
-`sprints/project-results-publication-v1.md`
+`sprints/gpt-5-5-model-upgrade-v1.md`
+
+## GPT-5.5 Model Upgrade V1 (Sprint 20)
+- [x] Add a regression test for the shared model default.
+- [x] Upgrade the support agent and GEPA teacher default to GPT-5.5.
+- [x] Update the active live-run documentation.
+- [x] Run targeted, full, compile, CLI, and diff verification.
+- [x] Complete structured review and document results.
+- [ ] Commit, push, and update the draft PR.
 
 ## Project Results Publication V1 (Sprint 19)
 - [x] Add the approved project name and description.

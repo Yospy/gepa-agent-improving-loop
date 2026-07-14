@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_reliability_lab.agents.openai_runner import (  # noqa: E402
+    DEFAULT_OPENAI_MODEL,
     DEFAULT_TEMPERATURE,
     DEGRADED_SYSTEM_INSTRUCTION,
     OPENAI_DEGRADED_AGENT_VERSION,
@@ -50,6 +51,9 @@ class FakeResponsesClient:
 
 
 class OpenAIAgentTests(unittest.TestCase):
+    def test_default_openai_model_is_gpt_5_5(self) -> None:
+        self.assertEqual(DEFAULT_OPENAI_MODEL, "gpt-5.5")
+
     def test_tool_schemas_are_fixed_strict_function_tools(self) -> None:
         schema_by_name = {schema["name"]: schema for schema in OPENAI_SUPPORT_TOOL_SCHEMAS}
 

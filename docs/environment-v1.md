@@ -303,7 +303,7 @@ Run the degraded OpenAI candidate live only when `OPENAI_API_KEY` is configured
 and the optional `openai` dependency is installed:
 
 ```bash
-PYTHONPATH=src OPENAI_MODEL=gpt-4.1-mini \
+PYTHONPATH=src OPENAI_MODEL=gpt-5.5 \
 python3 -m agent_reliability_lab.runs.recorder \
   --candidate-id cand_openai_degraded_v1
 ```
