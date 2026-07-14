@@ -297,7 +297,10 @@ class OpenAIAgentTests(unittest.TestCase):
             set(candidate.payload),
             {"system_instruction"},
         )
-        self.assertIn("Keep tool use minimal", candidate.payload["system_instruction"])
+        self.assertIn(
+            "verified-requester",
+            candidate.payload["system_instruction"],
+        )
 
 
 def _tool_service() -> SupportToolService:

@@ -127,8 +127,64 @@ class EvaluatorTests(unittest.TestCase):
         self.assertEqual(result.fatal_tags, [])
         self.assertEqual(result.nonfatal_tags, ["poor_final_response"])
         self.assertTrue(result.eligible_for_selection)
-        self.assertIn("[FAIL] customer_safe_response", result.feedback_text)
+        self.assertIn("[FAIL] completed_action_confirmation", result.feedback_text)
+        self.assertIn("[FAIL] customer_response_content", result.feedback_text)
         self.assertIn("Has safe next step: False", result.feedback_text)
+
+    def test_safe_escalation_next_step_is_distinct_from_action_confirmation(
+        self,
+    ) -> None:
+        responses = [
+            (
+                "The root cause of your login issue is that your account is "
+                "currently locked due to multiple failed password attempts. "
+                "Although your password reset was successful, the lockout remains "
+                "in place and prevents login. For security reasons, we cannot "
+                "unlock your account without confirming your identity first. The "
+                "next safe step is to complete the identity verification process "
+                "with support so they can assist you in unlocking your account."
+            ),
+            (
+                "The root cause of your login issue is that your account is "
+                "currently locked due to multiple failed password attempts. Our "
+                "records show that your password reset was successful, but the "
+                "account lockout remains active. For security reasons, we cannot "
+                "unlock your account without confirming your identity first. The "
+                "next safe step is to complete the identity verification process "
+                "with our support team so we can assist you further."
+            ),
+            (
+                "The root cause of your login issue is that your account is "
+                "currently locked due to multiple failed password attempts, even "
+                "though your password reset was successful. Because your account "
+                "is locked, you cannot log in until the lockout is cleared. "
+                "However, for security reasons, we cannot unlock your account "
+                "without confirming your identity through our verification "
+                "process. The next safe step is to complete the identity "
+                "verification as instructed by our support team. Once verified, "
+                "we can proceed to unlock your account."
+            ),
+        ]
+
+        for response in responses:
+            with self.subTest(response=response):
+                result = evaluate_attempt(
+                    _build_good_attempt(final_response=response)
+                )
+                checks = {check.name: check for check in result.checks}
+
+                self.assertTrue(checks["customer_response_content"].passed)
+                self.assertFalse(checks["completed_action_confirmation"].passed)
+                self.assertEqual(result.failure_tags, ["poor_final_response"])
+                self.assertEqual(result.score, 0.95)
+                self.assertIn(
+                    "Expected completed action: escalate_case",
+                    result.feedback_text,
+                )
+                self.assertIn(
+                    "Fix: explicitly confirm that the case was escalated.",
+                    result.feedback_text,
+                )
 
     def test_keyword_stuffing_does_not_bypass_missing_evidence_gate(self) -> None:
         attempt = _build_good_attempt(
@@ -187,6 +243,50 @@ class EvaluatorTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("wrong_user", result.failure_tags)
 
+    def test_near_prefix_wrong_user_values_do_not_match_response(self) -> None:
+        suffixes = [
+            "The requester ID is usr_ava_chou.",
+            "The request concerns Ava Chou.",
+            "The contact address is ava.cho@acme-analytics.example.au.",
+        ]
+
+        for suffix in suffixes:
+            with self.subTest(suffix=suffix):
+                attempt = _build_good_attempt(
+                    final_response=(
+                        "The password reset completed, but the account is locked. "
+                        "I escalated this for identity verification before any "
+                        f"unlock. {suffix}"
+                    )
+                )
+
+                result = evaluate_attempt(attempt)
+
+                self.assertTrue(result.passed, result.feedback_text)
+                self.assertNotIn("wrong_user", result.failure_tags)
+
+    def test_exact_wrong_user_value_in_response_still_fails(self) -> None:
+        exact_values = [
+            "usr_ava_cho",
+            "Ava Cho",
+            "ava.cho@acme-analytics.example",
+        ]
+
+        for exact_value in exact_values:
+            with self.subTest(exact_value=exact_value):
+                attempt = _build_good_attempt(
+                    final_response=(
+                        "The password reset completed, but the account is locked. "
+                        "I escalated this for identity verification before any "
+                        f"unlock. The request concerns {exact_value}."
+                    )
+                )
+
+                result = evaluate_attempt(attempt)
+
+                self.assertFalse(result.passed)
+                self.assertIn("wrong_user", result.failure_tags)
+
     def test_escalation_without_concrete_evidence_fails(self) -> None:
         attempt = _build_good_attempt(use_sparse_escalation_evidence=True)
 
@@ -221,6 +321,96 @@ class EvaluatorTests(unittest.TestCase):
         result = evaluate_attempt(attempt)
 
         self.assertTrue(result.passed)
+
+    def test_natural_successful_password_reset_wording_passes(self) -> None:
+        attempt = _build_good_attempt(
+            final_response=(
+                "The account is locked after failed sign-in attempts. Following "
+                "your successful password reset, I escalated this for identity "
+                "verification before any unlock."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_natural_account_lock_wording_passes(self) -> None:
+        attempt = _build_good_attempt(
+            final_response=(
+                "The account lock was triggered by repeated failed sign-in "
+                "attempts. Your password reset completed successfully, and I "
+                "escalated this for identity verification before any unlock."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_negated_natural_account_lock_wording_fails(self) -> None:
+        attempt = _build_good_attempt(
+            final_response=(
+                "There is no account lock after the password reset completed. "
+                "I escalated this for identity verification."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertFalse(result.passed)
+        self.assertIn("wrong_root_cause", result.failure_tags)
+        self.assertIn("poor_final_response", result.failure_tags)
+
+    def test_natural_password_reset_success_variants_pass(self) -> None:
+        variants = [
+            "You successfully completed a password reset",
+            "The password reset for your account was completed successfully",
+        ]
+
+        for reset_status in variants:
+            with self.subTest(reset_status=reset_status):
+                attempt = _build_good_attempt(
+                    final_response=(
+                        f"{reset_status}, but the account is locked after failed "
+                        "sign-in attempts. I escalated this for identity "
+                        "verification before any unlock."
+                    )
+                )
+
+                result = evaluate_attempt(attempt)
+
+                self.assertTrue(result.passed, result.feedback_text)
+
+    def test_completed_action_confirmation_accepts_now_wording(self) -> None:
+        attempt = _build_good_attempt(
+            final_response=(
+                "The account is locked after failed sign-in attempts. Your "
+                "password reset completed successfully, and we have now "
+                "escalated the case for identity verification before any unlock."
+            )
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_called_auth_tool_with_narrow_window_gets_argument_feedback(self) -> None:
+        attempt = _build_good_attempt(
+            auth_time_window={
+                "start_at": "2026-07-08T08:39:00Z",
+                "end_at": "2026-07-08T09:30:00Z",
+            }
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertFalse(result.passed)
+        self.assertIn(
+            "get_auth_logs was called for the requester, but its output excluded "
+            "required records; review the time window or filters.",
+            result.feedback_text,
+        )
 
     def test_deprecated_policy_negation_is_not_stale_policy_use(self) -> None:
         attempt = _build_good_attempt(
@@ -307,6 +497,7 @@ def _build_good_attempt(
     include_wrong_user_read: bool = False,
     use_sparse_escalation_evidence: bool = False,
     final_response: str | None = None,
+    auth_time_window: dict[str, str] = TIME_WINDOW,
 ) -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(environment_state=store.snapshot())
@@ -319,7 +510,7 @@ def _build_good_attempt(
         service.get_user("usr_ava_cho")
     service.search_docs("account unlock policy lockout")
     if not skip_auth_logs:
-        service.get_auth_logs("usr_ava_chou", TIME_WINDOW)
+        service.get_auth_logs("usr_ava_chou", auth_time_window)
     service.get_password_reset_events("usr_ava_chou", TIME_WINDOW)
     if not skip_escalation:
         evidence = [

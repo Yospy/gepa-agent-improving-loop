@@ -43,6 +43,16 @@ from agent_reliability_lab.scenarios import DEFAULT_SCENARIO_DIR
 
 
 DEFAULT_GEPA_OUTPUT_DIR = Path(".gepa-runs")
+DEFAULT_SCORE_REGRESSION_TOLERANCE = 0.05
+RETRYABLE_MUTATION_ERROR_TYPES = frozenset(
+    {
+        "empty_instruction",
+        "identifier_memorization",
+        "instruction_too_long",
+        "invalid_response",
+        "unchanged_instruction",
+    }
+)
 Clock = Callable[[], datetime]
 OptimizationIDFactory = Callable[[], str]
 
@@ -64,6 +74,8 @@ class GEPAConfig:
     environment_path: Path | str = DEFAULT_ENVIRONMENT_PATH
     run_output_dir: Path | str = DEFAULT_RUN_OUTPUT_DIR
     persist_runs: bool = True
+    max_mutation_attempts: int = 2
+    children_per_generation: int = 1
 
     def __post_init__(self) -> None:
         candidate_id = (
@@ -79,6 +91,18 @@ class GEPAConfig:
             or self.max_generations < 1
         ):
             raise ValueError("max_generations must be a positive integer.")
+        if (
+            not isinstance(self.max_mutation_attempts, int)
+            or isinstance(self.max_mutation_attempts, bool)
+            or self.max_mutation_attempts < 1
+        ):
+            raise ValueError("max_mutation_attempts must be a positive integer.")
+        if (
+            not isinstance(self.children_per_generation, int)
+            or isinstance(self.children_per_generation, bool)
+            or self.children_per_generation < 1
+        ):
+            raise ValueError("children_per_generation must be a positive integer.")
         if not isinstance(self.persist_runs, bool):
             raise ValueError("persist_runs must be boolean.")
         object.__setattr__(self, "initial_candidate_id", candidate_id)
@@ -94,6 +118,8 @@ class GEPAConfig:
                 "repeat_count": self.suite.repeat_count,
             },
             "max_generations": self.max_generations,
+            "max_mutation_attempts": self.max_mutation_attempts,
+            "children_per_generation": self.children_per_generation,
             "environment_path": str(self.environment_path),
             "run_output_dir": str(self.run_output_dir),
             "persist_runs": self.persist_runs,
@@ -119,6 +145,30 @@ class OptimizationError:
 
 
 @dataclass(frozen=True)
+class GEPAChildTrial:
+    mutation: MutationResult
+    child_candidate_id: str
+    child_run_ids: tuple[str, ...]
+    comparison: CandidateSuiteComparison | None
+    decision: AcceptanceDecision | None
+    error: OptimizationError | None = None
+    mutation_attempts: tuple[MutationResult, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mutation": self.mutation.to_dict(),
+            "mutation_attempts": [
+                attempt.to_dict() for attempt in self.mutation_attempts
+            ],
+            "child_candidate_id": self.child_candidate_id,
+            "child_run_ids": list(self.child_run_ids),
+            "comparison": self.comparison.to_dict() if self.comparison else None,
+            "decision": self.decision.to_dict() if self.decision else None,
+            "error": self.error.to_dict() if self.error else None,
+        }
+
+
+@dataclass(frozen=True)
 class GEPAGeneration:
     generation_number: int
     parent_candidate_id: str
@@ -129,6 +179,8 @@ class GEPAGeneration:
     comparison: CandidateSuiteComparison | None
     decision: AcceptanceDecision | None
     error: OptimizationError | None = None
+    mutation_attempts: tuple[MutationResult, ...] = ()
+    child_trials: tuple[GEPAChildTrial, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +188,10 @@ class GEPAGeneration:
             "parent_candidate_id": self.parent_candidate_id,
             "parent_run_ids": list(self.parent_run_ids),
             "mutation": self.mutation.to_dict() if self.mutation else None,
+            "mutation_attempts": [
+                attempt.to_dict() for attempt in self.mutation_attempts
+            ],
+            "child_trials": [trial.to_dict() for trial in self.child_trials],
             "child_candidate_id": self.child_candidate_id,
             "child_run_ids": list(self.child_run_ids),
             "comparison": self.comparison.to_dict() if self.comparison else None,
@@ -175,12 +231,19 @@ class GEPAOptimizationResult:
 
 def decide_candidate_acceptance(
     comparison: CandidateSuiteComparison,
+    *,
+    score_regression_tolerance: float = DEFAULT_SCORE_REGRESSION_TOLERANCE,
 ) -> AcceptanceDecision:
     if comparison.safety_regressed_scenario_ids:
         return AcceptanceDecision(False, "safety_regression")
+    if comparison.fatal_regressed_scenario_ids:
+        return AcceptanceDecision(False, "fatal_regression")
     if comparison.regressed_scenario_ids:
         return AcceptanceDecision(False, "pass_regression")
-    if any(delta.average_score_delta < 0 for delta in comparison.scenario_deltas):
+    if any(
+        delta.average_score_delta < -score_regression_tolerance
+        for delta in comparison.scenario_deltas
+    ):
         return AcceptanceDecision(False, "score_regression")
     if not comparison.improved_scenario_ids:
         return AcceptanceDecision(False, "no_improvement")
@@ -280,174 +343,249 @@ def run_gepa_optimization(
                 clock,
             )
 
-        mutation = reflect_and_create_child(
-            current_parent,
-            bundle,
-            reflection_client,
-            mutation_id_factory=mutation_id_factory,
-            clock=clock,
-        )
-        if not mutation.succeeded:
-            generations.append(
-                GEPAGeneration(
-                    generation_number=generation_number,
-                    parent_candidate_id=current_parent.candidate_id,
-                    parent_run_ids=parent_run_ids,
-                    mutation=mutation,
-                    child_candidate_id=None,
-                    child_run_ids=(),
-                    comparison=None,
-                    decision=None,
-                )
-            )
-            return _finish(
-                optimization_id,
-                started_at,
-                config,
-                current_parent.candidate_id,
-                initial_parent_run_ids,
-                generations,
-                "mutation_failed",
-                mutation.error.message if mutation.error else None,
-                clock,
-            )
+        child_trials: list[GEPAChildTrial] = []
+        evaluated_children: list[
+            tuple[int, GEPAChildTrial, Candidate, CandidateSuiteRun]
+        ] = []
+        proposal_bundle = bundle
+        generation_pool = current_pool
 
-        assert mutation.child is not None
-        child = mutation.child
-        try:
-            child_pool = current_pool.with_candidate(child)
-        except Exception as exc:
-            generations.append(
-                GEPAGeneration(
-                    generation_number=generation_number,
-                    parent_candidate_id=current_parent.candidate_id,
-                    parent_run_ids=parent_run_ids,
-                    mutation=mutation,
-                    child_candidate_id=child.candidate_id,
-                    child_run_ids=(),
-                    comparison=None,
-                    decision=None,
-                    error=OptimizationError("candidate_registration_error", str(exc)),
+        for child_order in range(config.children_per_generation):
+            mutation_attempts: list[MutationResult] = []
+            attempt_bundle = proposal_bundle
+            for attempt_number in range(1, config.max_mutation_attempts + 1):
+                mutation = reflect_and_create_child(
+                    current_parent,
+                    attempt_bundle,
+                    reflection_client,
+                    mutation_id_factory=mutation_id_factory,
+                    clock=clock,
                 )
-            )
-            return _finish(
-                optimization_id,
-                started_at,
-                config,
-                current_parent.candidate_id,
-                initial_parent_run_ids,
-                generations,
-                "candidate_registration_error",
-                str(exc),
-                clock,
-            )
+                mutation_attempts.append(mutation)
+                if mutation.succeeded or not _mutation_is_retryable(mutation):
+                    break
+                if attempt_number < config.max_mutation_attempts:
+                    attempt_bundle = proposal_bundle.with_revision_feedback(
+                        _mutation_revision_feedback(mutation)
+                    )
 
-        try:
-            child_suite = _run_suite(
-                child.candidate_id,
-                config,
-                child_pool,
-                suite_runner,
-                clock,
-            )
-        except Exception as exc:
-            generations.append(
-                GEPAGeneration(
-                    generation_number=generation_number,
-                    parent_candidate_id=current_parent.candidate_id,
-                    parent_run_ids=parent_run_ids,
+            mutation_attempts_tuple = tuple(mutation_attempts)
+            if not mutation.succeeded:
+                generations.append(
+                    GEPAGeneration(
+                        generation_number=generation_number,
+                        parent_candidate_id=current_parent.candidate_id,
+                        parent_run_ids=parent_run_ids,
+                        mutation=mutation,
+                        child_candidate_id=None,
+                        child_run_ids=(),
+                        comparison=None,
+                        decision=None,
+                        mutation_attempts=mutation_attempts_tuple,
+                        child_trials=tuple(child_trials),
+                    )
+                )
+                return _finish(
+                    optimization_id,
+                    started_at,
+                    config,
+                    current_parent.candidate_id,
+                    initial_parent_run_ids,
+                    generations,
+                    "mutation_failed",
+                    mutation.error.message if mutation.error else None,
+                    clock,
+                )
+
+            assert mutation.child is not None
+            child = mutation.child
+            try:
+                generation_pool = generation_pool.with_candidate(child)
+            except Exception as exc:
+                error = OptimizationError("candidate_registration_error", str(exc))
+                trial = GEPAChildTrial(
                     mutation=mutation,
                     child_candidate_id=child.candidate_id,
                     child_run_ids=(),
                     comparison=None,
                     decision=None,
-                    error=OptimizationError("child_suite_error", str(exc)),
+                    error=error,
+                    mutation_attempts=mutation_attempts_tuple,
                 )
-            )
-            return _finish(
-                optimization_id,
-                started_at,
-                config,
-                current_parent.candidate_id,
-                initial_parent_run_ids,
-                generations,
-                "child_suite_error",
-                str(exc),
-                clock,
-            )
+                child_trials.append(trial)
+                generations.append(
+                    _generation_from_trial(
+                        generation_number,
+                        current_parent.candidate_id,
+                        parent_run_ids,
+                        trial,
+                        tuple(child_trials),
+                    )
+                )
+                return _finish(
+                    optimization_id,
+                    started_at,
+                    config,
+                    current_parent.candidate_id,
+                    initial_parent_run_ids,
+                    generations,
+                    "candidate_registration_error",
+                    str(exc),
+                    clock,
+                )
 
-        child_run_ids = _run_ids(child_suite)
-        if not child_suite.complete:
-            generations.append(
-                GEPAGeneration(
-                    generation_number=generation_number,
-                    parent_candidate_id=current_parent.candidate_id,
-                    parent_run_ids=parent_run_ids,
+            try:
+                child_suite = _run_suite(
+                    child.candidate_id,
+                    config,
+                    generation_pool,
+                    suite_runner,
+                    clock,
+                )
+            except Exception as exc:
+                error = OptimizationError("child_suite_error", str(exc))
+                trial = GEPAChildTrial(
+                    mutation=mutation,
+                    child_candidate_id=child.candidate_id,
+                    child_run_ids=(),
+                    comparison=None,
+                    decision=None,
+                    error=error,
+                    mutation_attempts=mutation_attempts_tuple,
+                )
+                child_trials.append(trial)
+                generations.append(
+                    _generation_from_trial(
+                        generation_number,
+                        current_parent.candidate_id,
+                        parent_run_ids,
+                        trial,
+                        tuple(child_trials),
+                    )
+                )
+                return _finish(
+                    optimization_id,
+                    started_at,
+                    config,
+                    current_parent.candidate_id,
+                    initial_parent_run_ids,
+                    generations,
+                    "child_suite_error",
+                    str(exc),
+                    clock,
+                )
+
+            child_run_ids = _run_ids(child_suite)
+            if not child_suite.complete:
+                detail = _suite_error_detail(child_suite)
+                error = OptimizationError("child_suite_incomplete", detail)
+                trial = GEPAChildTrial(
                     mutation=mutation,
                     child_candidate_id=child.candidate_id,
                     child_run_ids=child_run_ids,
                     comparison=None,
                     decision=None,
-                    error=OptimizationError(
-                        "child_suite_incomplete",
-                        _suite_error_detail(child_suite),
-                    ),
+                    error=error,
+                    mutation_attempts=mutation_attempts_tuple,
                 )
-            )
-            return _finish(
-                optimization_id,
-                started_at,
-                config,
-                current_parent.candidate_id,
-                initial_parent_run_ids,
-                generations,
-                "child_suite_incomplete",
-                _suite_error_detail(child_suite),
-                clock,
-            )
+                child_trials.append(trial)
+                generations.append(
+                    _generation_from_trial(
+                        generation_number,
+                        current_parent.candidate_id,
+                        parent_run_ids,
+                        trial,
+                        tuple(child_trials),
+                    )
+                )
+                return _finish(
+                    optimization_id,
+                    started_at,
+                    config,
+                    current_parent.candidate_id,
+                    initial_parent_run_ids,
+                    generations,
+                    "child_suite_incomplete",
+                    detail,
+                    clock,
+                )
 
-        try:
-            comparison = compare_candidate_suites(parent_suite, child_suite)
-        except Exception as exc:
-            generations.append(
-                GEPAGeneration(
-                    generation_number=generation_number,
-                    parent_candidate_id=current_parent.candidate_id,
-                    parent_run_ids=parent_run_ids,
+            try:
+                comparison = compare_candidate_suites(parent_suite, child_suite)
+            except Exception as exc:
+                error = OptimizationError("comparison_error", str(exc))
+                trial = GEPAChildTrial(
                     mutation=mutation,
                     child_candidate_id=child.candidate_id,
                     child_run_ids=child_run_ids,
                     comparison=None,
                     decision=None,
-                    error=OptimizationError("comparison_error", str(exc)),
+                    error=error,
+                    mutation_attempts=mutation_attempts_tuple,
                 )
-            )
-            return _finish(
-                optimization_id,
-                started_at,
-                config,
-                current_parent.candidate_id,
-                initial_parent_run_ids,
-                generations,
-                "comparison_error",
-                str(exc),
-                clock,
-            )
+                child_trials.append(trial)
+                generations.append(
+                    _generation_from_trial(
+                        generation_number,
+                        current_parent.candidate_id,
+                        parent_run_ids,
+                        trial,
+                        tuple(child_trials),
+                    )
+                )
+                return _finish(
+                    optimization_id,
+                    started_at,
+                    config,
+                    current_parent.candidate_id,
+                    initial_parent_run_ids,
+                    generations,
+                    "comparison_error",
+                    str(exc),
+                    clock,
+                )
 
-        decision = decide_candidate_acceptance(comparison)
-        generations.append(
-            GEPAGeneration(
-                generation_number=generation_number,
-                parent_candidate_id=current_parent.candidate_id,
-                parent_run_ids=parent_run_ids,
+            decision = decide_candidate_acceptance(comparison)
+            trial = GEPAChildTrial(
                 mutation=mutation,
                 child_candidate_id=child.candidate_id,
                 child_run_ids=child_run_ids,
                 comparison=comparison,
                 decision=decision,
+                mutation_attempts=mutation_attempts_tuple,
+            )
+            child_trials.append(trial)
+            evaluated_children.append(
+                (child_order, trial, child, child_suite)
+            )
+            if decision.accepted and _suite_is_perfect(child_suite):
+                break
+            if not decision.accepted:
+                proposal_bundle = bundle.with_revision_feedback(
+                    _child_rejection_feedback(trial)
+                )
+
+        acceptable_children = [
+            item for item in evaluated_children if item[1].decision.accepted
+        ]
+        selection_pool = acceptable_children or evaluated_children
+        selected_order, selected_trial, selected_child, selected_suite = max(
+            selection_pool,
+            key=lambda item: _child_trial_rank(item[1], item[0]),
+        )
+        del selected_order
+        generations.append(
+            _generation_from_trial(
+                generation_number,
+                current_parent.candidate_id,
+                parent_run_ids,
+                selected_trial,
+                tuple(child_trials),
             )
         )
-        if not decision.accepted:
+
+        assert selected_trial.decision is not None
+        if not selected_trial.decision.accepted:
             return _finish(
                 optimization_id,
                 started_at,
@@ -456,14 +594,14 @@ def run_gepa_optimization(
                 initial_parent_run_ids,
                 generations,
                 "child_rejected",
-                decision.reason,
+                selected_trial.decision.reason,
                 clock,
             )
 
-        current_pool = child_pool
-        current_parent = child
-        parent_suite = child_suite
-        if _suite_is_perfect(child_suite):
+        current_pool = generation_pool
+        current_parent = selected_child
+        parent_suite = selected_suite
+        if _suite_is_perfect(selected_suite):
             return _finish(
                 optimization_id,
                 started_at,
@@ -512,6 +650,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scenario-dir", default=str(DEFAULT_SCENARIO_DIR))
     parser.add_argument("--repeat-count", type=int, default=1)
     parser.add_argument("--max-generations", type=int, default=1)
+    parser.add_argument("--max-mutation-attempts", type=int, default=2)
+    parser.add_argument("--children-per-generation", type=int, default=1)
     parser.add_argument("--model", default=DEFAULT_OPENAI_MODEL)
     parser.add_argument("--environment-path", default=str(DEFAULT_ENVIRONMENT_PATH))
     parser.add_argument("--output-dir", default=str(DEFAULT_RUN_OUTPUT_DIR))
@@ -533,6 +673,8 @@ def main(argv: list[str] | None = None) -> int:
             initial_candidate_id=args.candidate_id,
             suite=suite,
             max_generations=args.max_generations,
+            max_mutation_attempts=args.max_mutation_attempts,
+            children_per_generation=args.children_per_generation,
             environment_path=args.environment_path,
             run_output_dir=args.output_dir,
             persist_runs=not args.no_persist,
@@ -626,6 +768,86 @@ def _assert_mutable_candidate(candidate: Candidate) -> None:
         raise ValueError(
             "GEPA optimization requires an openai_policy candidate with a system_instruction."
         )
+
+
+def _mutation_is_retryable(mutation: MutationResult) -> bool:
+    return bool(
+        mutation.error
+        and mutation.error.error_type in RETRYABLE_MUTATION_ERROR_TYPES
+    )
+
+
+def _mutation_revision_feedback(mutation: MutationResult) -> str:
+    assert mutation.error is not None
+    return (
+        "The previous mutation proposal was rejected by local validation. "
+        f"Error type: {mutation.error.error_type}. "
+        f"Reason: {mutation.error.message} "
+        "Return a corrected proposal that satisfies the reflection instructions; "
+        "do not repeat the rejected instruction."
+    )
+
+
+def _child_rejection_feedback(trial: GEPAChildTrial) -> str:
+    assert trial.decision is not None
+    assert trial.comparison is not None
+    return (
+        "The previous valid child was evaluated and rejected. "
+        f"Rejection reason: {trial.decision.reason}. "
+        "Propose a materially different replacement instruction that preserves "
+        "non-regressing behavior and directly addresses the parent evaluation "
+        "feedback; do not repeat the rejected proposal."
+    )
+
+
+def _child_trial_rank(
+    trial: GEPAChildTrial,
+    child_order: int,
+) -> tuple[float, float, int, int]:
+    assert trial.comparison is not None
+    pass_improvement = round(
+        sum(delta.pass_rate_delta for delta in trial.comparison.scenario_deltas),
+        4,
+    )
+    score_improvement = round(
+        sum(
+            delta.average_score_delta
+            for delta in trial.comparison.scenario_deltas
+        ),
+        4,
+    )
+    safety_improvement = -sum(
+        delta.safety_failure_delta
+        for delta in trial.comparison.scenario_deltas
+    )
+    return (
+        pass_improvement,
+        score_improvement,
+        safety_improvement,
+        -child_order,
+    )
+
+
+def _generation_from_trial(
+    generation_number: int,
+    parent_candidate_id: str,
+    parent_run_ids: tuple[str, ...],
+    trial: GEPAChildTrial,
+    child_trials: tuple[GEPAChildTrial, ...],
+) -> GEPAGeneration:
+    return GEPAGeneration(
+        generation_number=generation_number,
+        parent_candidate_id=parent_candidate_id,
+        parent_run_ids=parent_run_ids,
+        mutation=trial.mutation,
+        child_candidate_id=trial.child_candidate_id,
+        child_run_ids=trial.child_run_ids,
+        comparison=trial.comparison,
+        decision=trial.decision,
+        error=trial.error,
+        mutation_attempts=trial.mutation_attempts,
+        child_trials=child_trials,
+    )
 
 
 def _finish(

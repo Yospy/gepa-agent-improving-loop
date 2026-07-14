@@ -37,7 +37,19 @@ Generalize across scenarios. Do not copy run IDs, scenario IDs, ticket IDs, user
 IDs, account IDs, or evaluator-only record identifiers into the instruction.
 Only revise agent behavior. Do not propose changes to tools, scenarios, evaluator
 rules, model configuration, temperature, or step limits. Preserve successful
-behavior while correcting failures."""
+behavior while correcting failures.
+
+Treat these as runtime-enforced invariants that the replacement must preserve,
+not redesign or weaken: ticket-first requester binding, required evidence tool
+calls, active-policy lookup, and the allowed write capability. Do not spend
+mutation effort recreating their enforcement.
+
+Focus mutations on the remaining mutable behavior: event time-window selection,
+diagnosis language, policy query quality, escalation evidence composition using
+concrete record identifiers returned by tools, explicit completed-action
+confirmation, and safe next steps in the final customer response. Turn failed
+mutable checks into general, executable rules. Public tool names may be used;
+example-specific identifiers may not."""
 
 Clock = Callable[[], datetime]
 MutationIDFactory = Callable[[], str]
@@ -73,18 +85,34 @@ class ReflectionBundle:
     parent_system_instruction: str
     suite_name: str
     examples: tuple[ReflectionExample, ...]
+    revision_feedback: str | None = None
 
     @property
     def source_run_ids(self) -> tuple[str, ...]:
         return tuple(example.run_id for example in self.examples)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "parent_candidate_id": self.parent_candidate_id,
             "parent_system_instruction": self.parent_system_instruction,
             "suite_name": self.suite_name,
             "examples": [example.to_dict() for example in self.examples],
         }
+        if self.revision_feedback is not None:
+            payload["revision_feedback"] = self.revision_feedback
+        return payload
+
+    def with_revision_feedback(self, feedback: str) -> ReflectionBundle:
+        normalized = feedback.strip() if isinstance(feedback, str) else ""
+        if not normalized:
+            raise ValueError("Revision feedback must be a non-empty string.")
+        return ReflectionBundle(
+            parent_candidate_id=self.parent_candidate_id,
+            parent_system_instruction=self.parent_system_instruction,
+            suite_name=self.suite_name,
+            examples=self.examples,
+            revision_feedback=normalized,
+        )
 
 
 @dataclass(frozen=True)
@@ -428,13 +456,22 @@ def _validate_instruction(
     memorized = sorted(
         identifier
         for identifier in forbidden_identifiers
-        if identifier and identifier.casefold() in lowered
+        if identifier and _contains_exact_identifier(lowered, identifier.casefold())
     )
     if memorized:
         raise _MutationValidationError(
             "identifier_memorization",
             f"Mutated instruction contains optimizer-only identifiers: {memorized}",
         )
+
+
+def _contains_exact_identifier(text: str, identifier: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?<![a-zA-Z0-9_]){re.escape(identifier)}(?![a-zA-Z0-9_])",
+            text,
+        )
+    )
 
 
 def _failed_mutation(
