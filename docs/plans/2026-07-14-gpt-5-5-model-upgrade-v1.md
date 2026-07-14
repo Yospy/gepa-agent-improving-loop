@@ -41,3 +41,17 @@
 3. Review provenance, compatibility, side effects, and edge cases.
 4. Commit and push the GPT-5.5 branch.
 5. Open a follow-up draft PR to `main` with the GPT-5.5 change and validation.
+
+### Task 4: Correct GPT-5.5 request compatibility
+
+**Files:**
+- Modify: `src/agent_reliability_lab/agents/openai_runner.py`
+- Modify: `tests/test_openai_agent.py`
+- Modify: `sprints/gpt-5-5-model-upgrade-v1.md`
+
+1. Add a fake SDK transport test proving GPT-5.5 currently receives the unsupported `temperature` argument.
+2. Run the focused test and confirm it fails.
+3. Filter `temperature` only for the GPT-5.5 model family inside `OpenAIResponsesClient.create_response()`.
+4. Assert an older model still receives the configured temperature.
+5. Run targeted tests, the full suite, compileall, and `git diff --check`.
+6. Update and push draft PR #2.

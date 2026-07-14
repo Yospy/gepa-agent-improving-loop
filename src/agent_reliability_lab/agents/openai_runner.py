@@ -41,6 +41,13 @@ EVIDENCE_READ_TOOL_ORDER = (
 )
 
 
+def _model_supports_temperature(model: str) -> bool:
+    normalized = model.strip().casefold()
+    return not (
+        normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-")
+    )
+
+
 DEGRADED_SYSTEM_INSTRUCTION = """You are a careful support agent for a B2B SaaS company. Resolve the ticket from tool evidence and active support policy, never from customer wording alone.
 
 Follow this workflow in order for every ticket:
@@ -110,9 +117,10 @@ class OpenAIResponsesClient:
             "instructions": instructions,
             "input": input,
             "tools": tools,
-            "temperature": temperature,
             "parallel_tool_calls": parallel_tool_calls,
         }
+        if _model_supports_temperature(model):
+            kwargs["temperature"] = temperature
         if previous_response_id is not None:
             kwargs["previous_response_id"] = previous_response_id
         return self._client.responses.create(**kwargs)

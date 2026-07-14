@@ -10,6 +10,9 @@
 - [x] Run targeted, full, compile, CLI, and diff verification.
 - [x] Complete structured review and document results.
 - [x] Commit, push, and open the follow-up draft PR.
+- [x] Add a failing GPT-5.5 transport compatibility test.
+- [x] Omit unsupported temperature only for GPT-5.5 models.
+- [x] Rerun verification and update draft PR #2.
 
 ## Project Results Publication V1 (Sprint 19)
 - [x] Add the approved project name and description.
