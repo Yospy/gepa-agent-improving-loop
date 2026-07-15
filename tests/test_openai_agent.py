@@ -2,22 +2,31 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_reliability_lab.agents.openai_runner import (  # noqa: E402
-    DEFAULT_OPENAI_MODEL,
+    DEFAULT_FIREWORKS_AGENT_MAX_TOKENS,
+    DEFAULT_FIREWORKS_AGENT_MODEL,
+    DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
+    DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+    DEFAULT_FIREWORKS_TEACHER_MODEL,
+    DEFAULT_FIREWORKS_TOP_K,
     DEFAULT_TEMPERATURE,
     DEGRADED_SYSTEM_INSTRUCTION,
+    FIREWORKS_BASE_URL,
+    FireworksChatCompletionsClient,
     OPENAI_DEGRADED_AGENT_VERSION,
     OPENAI_POLICY_AGENT_NAME,
-    OpenAIResponsesClient,
     OpenAISupportAgent,
+    _tool_schemas_for_state,
 )
 from agent_reliability_lab.agents.openai_tools import (  # noqa: E402
     OPENAI_SUPPORT_TOOL_SCHEMAS,
@@ -51,42 +60,173 @@ class FakeResponsesClient:
         return self.responses.pop(0)
 
 
-class RecordingSDKResponses:
-    def __init__(self):
+class RecordingSDKCompletions:
+    def __init__(self, responses: list[object]):
+        self.responses = list(responses)
         self.calls: list[dict[str, object]] = []
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        return {"status": "completed", "output_text": "done"}
+        if not self.responses:
+            raise AssertionError("fake completion queue is empty")
+        return self.responses.pop(0)
+
+
+class RecordingSDKChat:
+    def __init__(self, responses: list[object]):
+        self.completions = RecordingSDKCompletions(responses)
 
 
 class RecordingSDKClient:
-    def __init__(self):
-        self.responses = RecordingSDKResponses()
+    def __init__(self, responses: list[object]):
+        self.chat = RecordingSDKChat(responses)
 
 
 class OpenAIAgentTests(unittest.TestCase):
-    def test_default_openai_model_is_gpt_5_5(self) -> None:
-        self.assertEqual(DEFAULT_OPENAI_MODEL, "gpt-5.5")
+    def test_default_fireworks_models_are_split_by_role(self) -> None:
+        self.assertEqual(
+            DEFAULT_FIREWORKS_AGENT_MODEL,
+            "accounts/fireworks/models/minimax-m3",
+        )
+        self.assertEqual(
+            DEFAULT_FIREWORKS_TEACHER_MODEL,
+            "accounts/fireworks/models/glm-5p2",
+        )
 
-    def test_sdk_adapter_omits_temperature_only_for_gpt_5_5(self) -> None:
-        sdk_client = RecordingSDKClient()
-        client = OpenAIResponsesClient(client=sdk_client)
+    def test_fireworks_client_requires_api_key_for_live_construction(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "FIREWORKS_API_KEY"):
+                FireworksChatCompletionsClient()
 
-        for model in ("gpt-5.5", "gpt-5.5-2026-07-14", "gpt-4.1-mini"):
-            client.create_response(
-                model=model,
-                instructions="Follow policy.",
-                input="Resolve the ticket.",
-                tools=[],
-                temperature=0.0,
-                parallel_tool_calls=False,
-            )
+    def test_fireworks_adapter_translates_tools_and_continuation_history(
+        self,
+    ) -> None:
+        sdk_client = RecordingSDKClient(
+            [
+                {
+                    "id": "chat_1",
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "get_ticket",
+                                            "arguments": '{"ticket_id":"tkt_7001"}',
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                },
+                {
+                    "id": "chat_2",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": "Resolved.", "tool_calls": []},
+                        }
+                    ],
+                },
+            ]
+        )
+        client = FireworksChatCompletionsClient(client=sdk_client)
+        tool_schema = {
+            "type": "function",
+            "name": "get_ticket",
+            "description": "Read a ticket.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {"ticket_id": {"type": "string"}},
+                "required": ["ticket_id"],
+                "additionalProperties": False,
+            },
+        }
 
-        first, second, third = sdk_client.responses.calls
-        self.assertNotIn("temperature", first)
-        self.assertNotIn("temperature", second)
-        self.assertEqual(third["temperature"], 0.0)
+        first = client.create_response(
+            model=DEFAULT_FIREWORKS_AGENT_MODEL,
+            instructions="Follow policy.",
+            input="Resolve the ticket.",
+            tools=[tool_schema],
+            temperature=0.0,
+            max_tokens=DEFAULT_FIREWORKS_AGENT_MAX_TOKENS,
+            top_k=DEFAULT_FIREWORKS_TOP_K,
+            presence_penalty=DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+            frequency_penalty=DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
+            parallel_tool_calls=False,
+            response_format=None,
+        )
+        second = client.create_response(
+            model=DEFAULT_FIREWORKS_AGENT_MODEL,
+            instructions="Follow policy.",
+            input=[
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": '{"ok":true}',
+                }
+            ],
+            tools=[],
+            temperature=0.0,
+            max_tokens=DEFAULT_FIREWORKS_AGENT_MAX_TOKENS,
+            top_k=DEFAULT_FIREWORKS_TOP_K,
+            presence_penalty=DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+            frequency_penalty=DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
+            parallel_tool_calls=False,
+            response_format={"type": "json_object"},
+            previous_response_id="chat_1",
+        )
+
+        self.assertEqual(FIREWORKS_BASE_URL, "https://api.fireworks.ai/inference/v1")
+        self.assertEqual(first["id"], "chat_1")
+        self.assertEqual(first["output"][0]["type"], "function_call")
+        self.assertEqual(first["output"][0]["name"], "get_ticket")
+        self.assertEqual(second["output_text"], "Resolved.")
+
+        first_call, second_call = sdk_client.chat.completions.calls
+        self.assertEqual(first_call["model"], DEFAULT_FIREWORKS_AGENT_MODEL)
+        self.assertEqual(
+            first_call["messages"],
+            [
+                {"role": "system", "content": "Follow policy."},
+                {"role": "user", "content": "Resolve the ticket."},
+            ],
+        )
+        self.assertEqual(
+            first_call["tools"][0],
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_ticket",
+                    "description": "Read a ticket.",
+                    "strict": True,
+                    "parameters": tool_schema["parameters"],
+                },
+            },
+        )
+        self.assertEqual(first_call["temperature"], 0.0)
+        self.assertEqual(first_call["max_tokens"], 64_000)
+        self.assertEqual(first_call["extra_body"], {"top_k": 40})
+        self.assertEqual(first_call["presence_penalty"], 0.0)
+        self.assertEqual(first_call["frequency_penalty"], 0.0)
+        self.assertFalse(first_call["parallel_tool_calls"])
+        self.assertNotIn("response_format", first_call)
+        self.assertEqual(second_call["messages"][2]["role"], "assistant")
+        self.assertEqual(
+            second_call["messages"][2]["tool_calls"][0]["id"],
+            "call_1",
+        )
+        self.assertEqual(
+            second_call["messages"][3],
+            {"role": "tool", "tool_call_id": "call_1", "content": '{"ok":true}'},
+        )
+        self.assertEqual(second_call["response_format"], {"type": "json_object"})
 
     def test_tool_schemas_are_fixed_strict_function_tools(self) -> None:
         schema_by_name = {schema["name"]: schema for schema in OPENAI_SUPPORT_TOOL_SCHEMAS}
@@ -166,7 +306,8 @@ class OpenAIAgentTests(unittest.TestCase):
         self.assertEqual(fake.calls[0]["instructions"], DEGRADED_SYSTEM_INSTRUCTION)
         self.assertEqual(fake.calls[0]["temperature"], DEFAULT_TEMPERATURE)
         self.assertFalse(fake.calls[0]["parallel_tool_calls"])
-        self.assertIn("tkt_1001", fake.calls[0]["input"])
+        self.assertIsNone(fake.calls[0]["response_format"])
+        self.assertIn("tkt_7001", fake.calls[0]["input"])
         self.assertNotIn("hidden_truth", fake.calls[0]["input"])
         self.assertEqual(fake.calls[1]["previous_response_id"], "resp_1")
 
@@ -325,6 +466,24 @@ class OpenAIAgentTests(unittest.TestCase):
         self.assertIsNotNone(record.agent_trace)
         self.assertEqual(record.agent_trace[0]["kind"], "agent_started")
 
+    def test_openai_policy_candidate_uses_fireworks_agent_model_override(
+        self,
+    ) -> None:
+        fake = FakeResponsesClient([_final_response("resp_1", "Done.")])
+
+        with patch.dict(
+            os.environ,
+            {"FIREWORKS_AGENT_MODEL": "accounts/custom/models/agent"},
+        ):
+            run_candidate_scenario(
+                "cand_openai_degraded_v1",
+                clock=lambda: FIXED_NOW,
+                persist=False,
+                responses_client=fake,
+            )
+
+        self.assertEqual(fake.calls[0]["model"], "accounts/custom/models/agent")
+
     def test_degraded_candidate_payload_contains_only_policy_runtime_surface(
         self,
     ) -> None:
@@ -339,6 +498,47 @@ class OpenAIAgentTests(unittest.TestCase):
             "verified-requester",
             candidate.payload["system_instruction"],
         )
+
+    def test_runner_exposes_both_write_actions_after_policy_evidence(self) -> None:
+        schemas = _tool_schemas_for_state(
+            visible_ticket_id="tkt_7007",
+            requester_user_id="usr_gia_rossi",
+            ticket_tags=frozenset({"verified-requester"}),
+            completed_reads={
+                "get_user",
+                "get_auth_logs",
+                "get_password_reset_events",
+                "get_mfa_status",
+                "get_sessions",
+            },
+            active_policy_observed=True,
+            action_completed=False,
+            unlock_denied=False,
+        )
+
+        self.assertEqual(
+            {schema["name"] for schema in schemas},
+            {"unlock_user", "escalate_case"},
+        )
+
+    def test_runner_offers_only_escalation_after_denied_unlock(self) -> None:
+        schemas = _tool_schemas_for_state(
+            visible_ticket_id="tkt_7007",
+            requester_user_id="usr_gia_rossi",
+            ticket_tags=frozenset({"verified-requester"}),
+            completed_reads={
+                "get_user",
+                "get_auth_logs",
+                "get_password_reset_events",
+                "get_mfa_status",
+                "get_sessions",
+            },
+            active_policy_observed=True,
+            action_completed=False,
+            unlock_denied=True,
+        )
+
+        self.assertEqual([schema["name"] for schema in schemas], ["escalate_case"])
 
 
 def _tool_service() -> SupportToolService:

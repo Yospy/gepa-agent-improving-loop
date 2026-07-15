@@ -9,21 +9,38 @@ scenario -> agent run -> deterministic evaluation -> reflection and mutation
          -> candidate comparison -> release regression and holdout gates
 ```
 
-## Measured iteration result
+## Latest GEPA optimization result
 
-The live policy was measured across four support scenarios at two engineering checkpoints:
+On 2026-07-15, MiniMax M3 was evaluated across eight V2 hard-evidence
+support cases while GLM-5.2 served as the GEPA reflection teacher. Each
+scenario was run once per candidate.
 
-| Checkpoint | Runs | Pass rate | Average score | Safety failures |
-| --- | ---: | ---: | ---: | ---: |
-| Initial live policy | 4 | 0% (0/4) | 0.6000 | 3 |
-| Latest validated policy | 16 | 81.25% (13/16) | 0.9906 | 0 |
+| Candidate stage | Pass rate | Average task score | Decision |
+| --- | ---: | ---: | --- |
+| Initial parent | 25% (2/8) | 0.8875 | Baseline |
+| Generation 1 | 75% (6/8) | 0.9500 | Accepted improvement |
+| Generation 2 | 87.5% (7/8) | 0.9813 | Accepted improvement |
+| Generation 3 | 100% (8/8) | 1.0000 | Perfect child |
 
-This is an observed improvement of **81.25 percentage points** in pass rate and **0.3906** in average score, with zero safety or fatal failures in the latest 16-run suite. The checkpoints span policy and evaluator hardening, so the result measures the end-to-end improvement loop rather than uplift from an accepted GEPA child alone.
+Across three accepted GEPA iterations, the observed pass rate increased by
+**75 percentage points**, from 25% to 100%, and the average task score increased
+by **0.1125**, from 0.8875 to 1.0000. No accepted generation introduced a pass,
+safety, or fatal regression.
+
+The optimizer improved the instruction in three focused steps: it broadened
+evidence time windows and strengthened escalation evidence, added compound-policy
+handling for compromise cases, and required explicit failure language for the
+remaining password-reset case. The run stopped with `perfect_child` after the
+third generation.
+
+These are observed optimization-suite results from one attempt per scenario.
+Scores and pass rates can vary by model and run; repeated regression and sealed
+holdout evaluation remain required before release promotion.
 
 ## What it includes
 
 - Realistic support and authentication scenarios with hidden evaluator truth
-- Offline deterministic baseline agents and injectable OpenAI policy runners
+- Offline deterministic baseline agents and injectable model-policy runners
 - Structured run recording, failure analysis, and candidate score comparison
 - A bounded GEPA-style system-instruction optimization loop
 - Conservative regression and sealed-holdout release gates
@@ -32,7 +49,7 @@ This is an observed improvement of **81.25 percentage points** in pass rate and 
 ## Requirements
 
 - Python 3.11+
-- An OpenAI API key only for live OpenAI candidate or reflection runs
+- A Fireworks API key only for live candidate or GEPA reflection runs
 
 ## Setup
 
@@ -41,6 +58,21 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -e .
 ```
+
+For live OSS-model runs, put this configuration in the repo-root `.env`:
+
+```dotenv
+FIREWORKS_API_KEY=your_key
+# Optional overrides:
+FIREWORKS_AGENT_MODEL=accounts/fireworks/models/minimax-m3
+FIREWORKS_TEACHER_MODEL=accounts/fireworks/models/glm-5p2
+```
+
+The evaluated support agent defaults to MiniMax M3. The GEPA reflection teacher
+defaults to GLM-5.2. The installed OpenAI Python SDK is used only as a compatible
+client for Fireworks' `/inference/v1/chat/completions` endpoint. MiniMax uses
+`max_tokens=64000`; GLM uses `max_tokens=131072`; both use `top_k=40`,
+`presence_penalty=0`, and `frequency_penalty=0`.
 
 ## Verify
 
@@ -86,4 +118,4 @@ See [`docs/environment-v1.md`](docs/environment-v1.md) for the architecture, dat
 
 ## Safety boundary
 
-Scenario-visible input is separated from evaluator-only truth. Automated tests do not make model or network calls, and live clients sit behind injectable interfaces. Local `.env` files, virtual environments, and generated run artifacts are excluded from Git.
+Scenario-visible input is separated from evaluator-only truth. Automated tests do not make model or network calls, and live clients sit behind injectable interfaces. Historical `openai_policy` candidate IDs remain unchanged for stored-record compatibility even though live traffic now uses Fireworks. Local `.env` files, virtual environments, and generated run artifacts are excluded from Git.

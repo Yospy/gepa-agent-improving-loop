@@ -22,6 +22,13 @@
       "plan": "business",
       "region": "us-west-2",
       "account_ids": ["acct_northwind_prod"]
+    },
+    {
+      "organization_id": "org_contoso_security",
+      "name": "Contoso Security",
+      "plan": "enterprise",
+      "region": "eu-west-1",
+      "account_ids": ["acct_contoso_prod"]
     }
   ],
   "accounts": [
@@ -40,6 +47,14 @@
       "domain": "northwind-bi.example",
       "subscription_status": "active",
       "support_tier": "business"
+    },
+    {
+      "account_id": "acct_contoso_prod",
+      "organization_id": "org_contoso_security",
+      "name": "Contoso Security Production",
+      "domain": "contoso-security.example",
+      "subscription_status": "active",
+      "support_tier": "enterprise"
     }
   ],
   "users": [
@@ -102,6 +117,86 @@
       "status": "active",
       "created_at": "2026-04-03T10:40:00Z",
       "last_login_at": "2026-07-09T12:15:00Z"
+    },
+    {
+      "user_id": "usr_aria_kim",
+      "account_id": "acct_contoso_prod",
+      "email": "aria.kim@contoso-security.example",
+      "full_name": "Aria Kim",
+      "role": "analyst",
+      "status": "locked",
+      "created_at": "2026-01-10T09:00:00Z",
+      "last_login_at": "2026-07-12T17:00:00Z"
+    },
+    {
+      "user_id": "usr_ben_okafor",
+      "account_id": "acct_contoso_prod",
+      "email": "ben.okafor@contoso-security.example",
+      "full_name": "Ben Okafor",
+      "role": "workspace_admin",
+      "status": "locked",
+      "created_at": "2025-10-11T09:00:00Z",
+      "last_login_at": "2026-07-11T18:00:00Z"
+    },
+    {
+      "user_id": "usr_chloe_martin",
+      "account_id": "acct_contoso_prod",
+      "email": "chloe.martin@contoso-security.example",
+      "full_name": "Chloe Martin",
+      "role": "analyst",
+      "status": "active",
+      "created_at": "2026-02-12T09:00:00Z",
+      "last_login_at": "2026-07-13T08:00:00Z"
+    },
+    {
+      "user_id": "usr_dev_shah",
+      "account_id": "acct_contoso_prod",
+      "email": "dev.shah@contoso-security.example",
+      "full_name": "Dev Shah",
+      "role": "security_admin",
+      "status": "locked",
+      "created_at": "2025-12-01T09:00:00Z",
+      "last_login_at": "2026-07-12T09:00:00Z"
+    },
+    {
+      "user_id": "usr_emma_wilson",
+      "account_id": "acct_contoso_prod",
+      "email": "emma.wilson@contoso-security.example",
+      "full_name": "Emma Wilson",
+      "role": "analyst",
+      "status": "locked",
+      "created_at": "2026-03-01T09:00:00Z",
+      "last_login_at": "2026-07-13T16:00:00Z"
+    },
+    {
+      "user_id": "usr_finn_lee",
+      "account_id": "acct_contoso_prod",
+      "email": "finn.lee@contoso-security.example",
+      "full_name": "Finn Lee",
+      "role": "analyst",
+      "status": "active",
+      "created_at": "2026-03-15T09:00:00Z",
+      "last_login_at": "2026-07-13T15:00:00Z"
+    },
+    {
+      "user_id": "usr_gia_rossi",
+      "account_id": "acct_contoso_prod",
+      "email": "gia.rossi@contoso-security.example",
+      "full_name": "Gia Rossi",
+      "role": "security_admin",
+      "status": "locked",
+      "created_at": "2025-09-20T09:00:00Z",
+      "last_login_at": "2026-07-13T19:00:00Z"
+    },
+    {
+      "user_id": "usr_hugo_santos",
+      "account_id": "acct_contoso_prod",
+      "email": "hugo.santos@contoso-security.example",
+      "full_name": "Hugo Santos",
+      "role": "workspace_admin",
+      "status": "locked",
+      "created_at": "2025-11-20T09:00:00Z",
+      "last_login_at": "2026-07-13T20:00:00Z"
     }
   ],
   "tickets": [
@@ -238,6 +333,102 @@
           "trust_level": "system_record"
         }
       ]
+    },
+    {
+      "ticket_id": "tkt_7001",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_aria_kim",
+      "subject": "Access blocked just after midnight",
+      "body": "My reset finished before midnight, but the workspace still asks me to contact support.",
+      "status": "open",
+      "channel": "email",
+      "created_at": "2026-07-14T00:10:00Z",
+      "tags": ["auth", "login", "cross-midnight"],
+      "notes": [{"note_id": "note_7001_system_1", "created_at": "2026-07-14T00:10:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_aria_kim; no identity verification is recorded.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7002",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_ben_okafor",
+      "subject": "Delayed report after verified lockout",
+      "body": "I was verified by support two days ago and still cannot enter the workspace.",
+      "status": "open",
+      "channel": "email",
+      "created_at": "2026-07-14T12:00:00Z",
+      "tags": ["auth", "login", "verified-requester", "delayed-report"],
+      "notes": [{"note_id": "note_7002_system_1", "created_at": "2026-07-14T12:00:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_ben_okafor; valid support verification idv_7002 is recorded.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7003",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_chloe_martin",
+      "subject": "Authenticator rejected after an old access restriction",
+      "body": "I had an access restriction yesterday, but today the password works and the authenticator is rejected.",
+      "status": "open",
+      "channel": "chat",
+      "created_at": "2026-07-14T10:00:00Z",
+      "tags": ["auth", "login", "mixed-history"],
+      "notes": [{"note_id": "note_7003_system_1", "created_at": "2026-07-14T10:00:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_chloe_martin.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7004",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_dev_shah",
+      "subject": "Verified user blocked after earlier authenticator trouble",
+      "body": "Yesterday my authenticator failed; today I reset the password and now access is blocked.",
+      "status": "open",
+      "channel": "chat",
+      "created_at": "2026-07-14T10:30:00Z",
+      "tags": ["auth", "login", "verified-requester", "mixed-history"],
+      "notes": [{"note_id": "note_7004_system_1", "created_at": "2026-07-14T10:30:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_dev_shah; valid support verification idv_7004 is recorded.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7005",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_emma_wilson",
+      "subject": "Second reset worked but access remains blocked",
+      "body": "The first reset attempt failed, the second completed, and I still cannot sign in.",
+      "status": "open",
+      "channel": "email",
+      "created_at": "2026-07-14T11:00:00Z",
+      "tags": ["auth", "login", "multiple-resets"],
+      "notes": [{"note_id": "note_7005_system_1", "created_at": "2026-07-14T11:00:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_emma_wilson; no identity verification is recorded.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7006",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_finn_lee",
+      "subject": "Newest reset attempt failed",
+      "body": "An older reset worked yesterday, but the reset I requested today failed before completion.",
+      "status": "open",
+      "channel": "email",
+      "created_at": "2026-07-14T11:30:00Z",
+      "tags": ["auth", "password-reset", "multiple-resets"],
+      "notes": [{"note_id": "note_7006_system_1", "created_at": "2026-07-14T11:30:02Z", "author_type": "system", "author_id": "support-desk-router", "body": "Requester matched usr_finn_lee.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7007",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_gia_rossi",
+      "subject": "Verified requester with suspicious login evidence",
+      "body": "I completed verification and reset the password, but access is blocked after an unfamiliar login alert.",
+      "status": "open",
+      "channel": "chat",
+      "created_at": "2026-07-14T12:00:00Z",
+      "tags": ["auth", "login", "verified-requester", "security-alert"],
+      "notes": [{"note_id": "note_7007_system_1", "created_at": "2026-07-14T12:00:02Z", "author_type": "system", "author_id": "risk-engine", "body": "Requester matched usr_gia_rossi; unresolved risk signal auth_7055 requires security review.", "trust_level": "system_record"}]
+    },
+    {
+      "ticket_id": "tkt_7008",
+      "account_id": "acct_contoso_prod",
+      "requester_user_id": "usr_hugo_santos",
+      "subject": "Old verification tag remains after expiry",
+      "body": "The ticket still says verified, but support told me the verification window may have expired.",
+      "status": "open",
+      "channel": "email",
+      "created_at": "2026-07-14T12:30:00Z",
+      "tags": ["auth", "login", "verified-requester"],
+      "notes": [{"note_id": "note_7008_system_1", "created_at": "2026-07-14T12:30:02Z", "author_type": "system", "author_id": "identity-service", "body": "Identity verification idv_7008 expired at 2026-07-14T11:45:00Z; the legacy tag has not yet been removed.", "trust_level": "system_record"}]
     }
   ],
   "auth_events": [
@@ -501,7 +692,40 @@
       "status_code": "401_mfa_challenge_failed",
       "source_system": "auth-console",
       "details": {"factor_stage": "mfa", "mfa_factor": "totp", "request_id": "req_auth_nw_mfa01"}
-    }
+    },
+    {"event_id":"auth_7011","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T23:30:00Z","event_type":"login_failure","ip_address":"198.51.100.71","user_agent":"Chrome macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7012","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T23:31:00Z","event_type":"login_failure","ip_address":"198.51.100.71","user_agent":"Chrome macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7013","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T23:32:00Z","event_type":"login_failure","ip_address":"198.51.100.71","user_agent":"Chrome macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7014","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T23:32:01Z","event_type":"account_locked","ip_address":"198.51.100.71","user_agent":"Chrome macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7015","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T00:03:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.71","user_agent":"Chrome macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}},
+    {"event_id":"auth_7021","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:00:00Z","event_type":"login_failure","ip_address":"198.51.100.72","user_agent":"Firefox Linux","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7022","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:01:00Z","event_type":"login_failure","ip_address":"198.51.100.72","user_agent":"Firefox Linux","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7023","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:02:00Z","event_type":"login_failure","ip_address":"198.51.100.72","user_agent":"Firefox Linux","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7024","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:02:01Z","event_type":"account_locked","ip_address":"198.51.100.72","user_agent":"Firefox Linux","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7025","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:15:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.72","user_agent":"Firefox Linux","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}},
+    {"event_id":"auth_7031","user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T08:00:00Z","event_type":"account_locked","ip_address":"198.51.100.73","user_agent":"Safari macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"resolved":true,"resolved_at":"2026-07-13T08:30:00Z"}},
+    {"event_id":"auth_7032","user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:10:00Z","event_type":"login_failure","ip_address":"198.51.100.73","user_agent":"Safari macOS","status_code":"401_mfa_challenge_failed","source_system":"auth-console","details":{"factor_stage":"mfa","mfa_factor":"totp"}},
+    {"event_id":"auth_7040","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T09:00:00Z","event_type":"login_failure","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"401_mfa_challenge_failed","source_system":"auth-console","details":{"factor_stage":"mfa","resolved":true}},
+    {"event_id":"auth_7041","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:30:00Z","event_type":"login_failure","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7042","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:31:00Z","event_type":"login_failure","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7043","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:32:00Z","event_type":"login_failure","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7044","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:32:01Z","event_type":"account_locked","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7045","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:50:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.74","user_agent":"Chrome Windows","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}},
+    {"event_id":"auth_7051","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T08:30:00Z","event_type":"login_failure","ip_address":"198.51.100.75","user_agent":"Edge Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7052","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T08:31:00Z","event_type":"login_failure","ip_address":"198.51.100.75","user_agent":"Edge Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7053","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T08:32:00Z","event_type":"login_failure","ip_address":"198.51.100.75","user_agent":"Edge Windows","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7054","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T08:32:01Z","event_type":"account_locked","ip_address":"198.51.100.75","user_agent":"Edge Windows","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7055","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:30:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.75","user_agent":"Edge Windows","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}},
+    {"event_id":"auth_7071","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:40:00Z","event_type":"login_failure","ip_address":"203.0.113.207","user_agent":"Unknown Linux","status_code":"401_invalid_credentials","source_system":"risk-engine","details":{"factor_stage":"password","compromise_indicator":true,"resolved":false,"risk_reason":"new_country_and_device"}},
+    {"event_id":"auth_7072","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:41:00Z","event_type":"login_failure","ip_address":"203.0.113.207","user_agent":"Unknown Linux","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7073","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:42:00Z","event_type":"login_failure","ip_address":"203.0.113.207","user_agent":"Unknown Linux","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7074","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:42:01Z","event_type":"account_locked","ip_address":"203.0.113.207","user_agent":"Unknown Linux","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7075","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T11:00:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.77","user_agent":"Chrome macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}},
+    {"event_id":"auth_7081","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:50:00Z","event_type":"login_failure","ip_address":"198.51.100.78","user_agent":"Firefox macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7082","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:51:00Z","event_type":"login_failure","ip_address":"198.51.100.78","user_agent":"Firefox macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7083","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:52:00Z","event_type":"login_failure","ip_address":"198.51.100.78","user_agent":"Firefox macOS","status_code":"401_invalid_credentials","source_system":"auth-console","details":{"factor_stage":"password"}},
+    {"event_id":"auth_7084","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:52:01Z","event_type":"account_locked","ip_address":"198.51.100.78","user_agent":"Firefox macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"failed_attempt_threshold":3}},
+    {"event_id":"auth_7085","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T11:10:00Z","event_type":"login_blocked_locked","ip_address":"198.51.100.78","user_agent":"Firefox macOS","status_code":"423_account_locked","source_system":"auth-console","details":{"message_key":"contact_support_account_locked"}}
   ],
   "password_reset_events": [
     {
@@ -580,7 +804,17 @@
       "delivery_channel": "email",
       "initiated_by": "customer_self_service",
       "source_system": "identity-service"
-    }
+    },
+    {"event_id":"prst_7011","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T23:50:00Z","completed_at":"2026-07-13T23:50:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7021","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","occurred_at":"2026-07-12T22:10:00Z","completed_at":"2026-07-12T22:10:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7031","user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:00:00Z","completed_at":"2026-07-14T09:00:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7041","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:45:00Z","completed_at":"2026-07-14T09:45:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7051","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:00:00Z","completed_at":"2026-07-14T09:00:20Z","status":"failed","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7052","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T09:20:00Z","completed_at":"2026-07-14T09:20:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7061","user_id":"usr_finn_lee","account_id":"acct_contoso_prod","occurred_at":"2026-07-13T15:30:00Z","completed_at":"2026-07-13T15:30:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7062","user_id":"usr_finn_lee","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:50:00Z","completed_at":"2026-07-14T10:50:20Z","status":"failed","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7071","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T10:55:00Z","completed_at":"2026-07-14T10:55:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"},
+    {"event_id":"prst_7081","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","occurred_at":"2026-07-14T11:00:00Z","completed_at":"2026-07-14T11:00:30Z","status":"succeeded","delivery_channel":"email","initiated_by":"customer_self_service","source_system":"identity-service"}
   ],
   "identity_verifications": [
     {
@@ -646,7 +880,13 @@
         "reason": "No identity verification has been completed for this ticket.",
         "policy_effect": "unlock_user should not proceed until verification status is verified"
       }
-    }
+    },
+    {"verification_id":"idv_7001","ticket_id":"tkt_7001","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","status":"not_started","method":"support_identity_check","occurred_at":"2026-07-14T00:10:02Z","verified_by":null,"expires_at":null,"source_system":"support-desk","details":{"reason":"No verification completed."}},
+    {"verification_id":"idv_7002","ticket_id":"tkt_7002","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","status":"verified","method":"support_identity_check","occurred_at":"2026-07-14T11:40:00Z","verified_by":"support_agent_seed","expires_at":"2026-07-15T11:40:00Z","source_system":"support-desk","details":{"reason":"Requester completed support verification."}},
+    {"verification_id":"idv_7004","ticket_id":"tkt_7004","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","status":"verified","method":"support_identity_check","occurred_at":"2026-07-14T10:10:00Z","verified_by":"support_agent_seed","expires_at":"2026-07-15T10:10:00Z","source_system":"support-desk","details":{"reason":"Requester completed support verification."}},
+    {"verification_id":"idv_7005","ticket_id":"tkt_7005","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","status":"not_started","method":"support_identity_check","occurred_at":"2026-07-14T11:00:02Z","verified_by":null,"expires_at":null,"source_system":"support-desk","details":{"reason":"No verification completed."}},
+    {"verification_id":"idv_7007","ticket_id":"tkt_7007","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","status":"verified","method":"support_identity_check","occurred_at":"2026-07-14T11:30:00Z","verified_by":"support_agent_seed","expires_at":"2026-07-15T11:30:00Z","source_system":"support-desk","details":{"reason":"Requester completed support verification; security policy remains independent."}},
+    {"verification_id":"idv_7008","ticket_id":"tkt_7008","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","status":"expired","method":"support_identity_check","occurred_at":"2026-07-14T10:45:00Z","verified_by":"support_agent_seed","expires_at":"2026-07-14T11:45:00Z","source_system":"support-desk","details":{"reason":"Verification window expired before assignment."}}
   ],
   "lockouts": [
     {
@@ -678,7 +918,14 @@
       "failed_attempt_count": 3,
       "unlock_requires_verified_requester": true,
       "source_system": "auth-console"
-    }
+    },
+    {"user_id":"usr_aria_kim","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-13T23:32:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-12T22:02:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","is_locked":false,"locked_at":null,"reason":"cleared_after_verified_recovery","failed_attempt_count":0,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_dev_shah","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-14T09:32:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-14T08:32:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-14T10:42:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"},
+    {"user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","is_locked":true,"locked_at":"2026-07-14T10:52:01Z","reason":"three_failed_password_attempts","failed_attempt_count":3,"unlock_requires_verified_requester":true,"source_system":"auth-console"}
   ],
   "mfa_states": [
     {
@@ -722,7 +969,15 @@
       "required": true,
       "enrolled_factors": ["totp"],
       "last_verified_at": "2026-07-09T12:14:55Z"
-    }
+    },
+    {"user_id":"usr_aria_kim","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["totp"],"last_verified_at":"2026-07-12T16:59:00Z"},
+    {"user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["webauthn","totp"],"last_verified_at":"2026-07-11T17:59:00Z"},
+    {"user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["totp"],"last_verified_at":"2026-07-13T07:59:00Z"},
+    {"user_id":"usr_dev_shah","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["webauthn"],"last_verified_at":"2026-07-12T08:59:00Z"},
+    {"user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["totp"],"last_verified_at":"2026-07-13T15:59:00Z"},
+    {"user_id":"usr_finn_lee","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["totp"],"last_verified_at":"2026-07-13T14:59:00Z"},
+    {"user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["webauthn","totp"],"last_verified_at":"2026-07-13T18:59:00Z"},
+    {"user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","required":true,"enrolled_factors":["totp"],"last_verified_at":"2026-07-13T19:59:00Z"}
   ],
   "sessions": [
     {
@@ -778,7 +1033,15 @@
       "created_at": "2026-07-09T12:15:00Z",
       "last_seen_at": "2026-07-09T13:05:00Z",
       "ip_address": "192.0.2.77"
-    }
+    },
+    {"session_id":"sess_aria_0712","user_id":"usr_aria_kim","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-12T17:00:00Z","last_seen_at":"2026-07-12T18:00:00Z","ip_address":"198.51.100.71"},
+    {"session_id":"sess_ben_0711","user_id":"usr_ben_okafor","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-11T18:00:00Z","last_seen_at":"2026-07-11T19:00:00Z","ip_address":"198.51.100.72"},
+    {"session_id":"sess_chloe_0713","user_id":"usr_chloe_martin","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-13T08:00:00Z","last_seen_at":"2026-07-13T09:00:00Z","ip_address":"198.51.100.73"},
+    {"session_id":"sess_dev_0712","user_id":"usr_dev_shah","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-12T09:00:00Z","last_seen_at":"2026-07-12T10:00:00Z","ip_address":"198.51.100.74"},
+    {"session_id":"sess_emma_0713","user_id":"usr_emma_wilson","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-13T16:00:00Z","last_seen_at":"2026-07-13T17:00:00Z","ip_address":"198.51.100.75"},
+    {"session_id":"sess_finn_0713","user_id":"usr_finn_lee","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-13T15:00:00Z","last_seen_at":"2026-07-13T16:00:00Z","ip_address":"198.51.100.76"},
+    {"session_id":"sess_gia_0713","user_id":"usr_gia_rossi","account_id":"acct_contoso_prod","status":"revoked","created_at":"2026-07-13T19:00:00Z","last_seen_at":"2026-07-14T10:40:00Z","ip_address":"203.0.113.207"},
+    {"session_id":"sess_hugo_0713","user_id":"usr_hugo_santos","account_id":"acct_contoso_prod","status":"expired","created_at":"2026-07-13T20:00:00Z","last_seen_at":"2026-07-13T21:00:00Z","ip_address":"198.51.100.78"}
   ],
   "knowledge_docs": [
     {
@@ -857,6 +1120,34 @@
         "manual MFA reset is required",
         "the user is not locked but cannot satisfy the second factor"
       ],
+      "agent_visible": true
+    },
+    {
+      "policy_id": "pol_password_reset_v1",
+      "title": "Password reset recovery policy",
+      "status": "active",
+      "updated_at": "2026-07-01T12:00:00Z",
+      "applies_to": ["enterprise", "business"],
+      "rules": [
+        "Compare reset events chronologically and use the latest completed attempt.",
+        "Do not treat an older successful reset as proof that a newer failed attempt succeeded.",
+        "Escalate a genuinely failed latest reset with the failed event evidence when no retry tool is available."
+      ],
+      "escalation_required_when": ["latest password reset attempt failed", "manual reset recovery is required"],
+      "agent_visible": true
+    },
+    {
+      "policy_id": "pol_account_compromise_v1",
+      "title": "Account compromise response policy",
+      "status": "active",
+      "updated_at": "2026-07-02T12:00:00Z",
+      "applies_to": ["enterprise", "business"],
+      "rules": [
+        "Treat unresolved compromise indicators as an independent security gate.",
+        "Do not unlock a verified requester while a compromise indicator remains unresolved.",
+        "Escalate with the risk event, lockout evidence, reset evidence, verification evidence, and this policy."
+      ],
+      "escalation_required_when": ["security logs contain unresolved compromise indicators", "verified requester is locked during active security review"],
       "agent_visible": true
     }
   ],

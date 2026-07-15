@@ -11,9 +11,13 @@ from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from agent_reliability_lab.agents.openai_runner import (
-    DEFAULT_OPENAI_MODEL,
+    DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
+    DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+    DEFAULT_FIREWORKS_TEACHER_MAX_TOKENS,
+    DEFAULT_FIREWORKS_TEACHER_MODEL,
+    DEFAULT_FIREWORKS_TOP_K,
     DEFAULT_TEMPERATURE,
-    OpenAIResponsesClient,
+    FireworksChatCompletionsClient,
     ResponsesClient,
 )
 from agent_reliability_lab.optimization.candidates import Candidate
@@ -50,6 +54,7 @@ concrete record identifiers returned by tools, explicit completed-action
 confirmation, and safe next steps in the final customer response. Turn failed
 mutable checks into general, executable rules. Public tool names may be used;
 example-specific identifiers may not."""
+REFLECTION_RESPONSE_FORMAT = {"type": "json_object"}
 
 Clock = Callable[[], datetime]
 MutationIDFactory = Callable[[], str]
@@ -163,17 +168,17 @@ class ReflectionClient(Protocol):
 
 
 class OpenAIReflectionClient:
-    """Live reflection adapter over the existing Responses API boundary."""
+    """Live Fireworks reflection adapter over the internal response boundary."""
 
     def __init__(
         self,
         *,
         responses_client: ResponsesClient | None = None,
-        model: str = DEFAULT_OPENAI_MODEL,
+        model: str = DEFAULT_FIREWORKS_TEACHER_MODEL,
     ) -> None:
         if not isinstance(model, str) or not model.strip():
             raise ValueError("Reflection model must be non-empty.")
-        self._client = responses_client or OpenAIResponsesClient()
+        self._client = responses_client or FireworksChatCompletionsClient()
         self._model = model.strip()
 
     def reflect(self, bundle: ReflectionBundle) -> str:
@@ -183,7 +188,12 @@ class OpenAIReflectionClient:
             input=format_reflection_input(bundle),
             tools=[],
             temperature=DEFAULT_TEMPERATURE,
+            max_tokens=DEFAULT_FIREWORKS_TEACHER_MAX_TOKENS,
+            top_k=DEFAULT_FIREWORKS_TOP_K,
+            presence_penalty=DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+            frequency_penalty=DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
             parallel_tool_calls=False,
+            response_format=REFLECTION_RESPONSE_FORMAT,
             previous_response_id=None,
         )
         status = _response_value(response, "status")
@@ -244,10 +254,7 @@ def format_reflection_input(bundle: ReflectionBundle) -> str:
 
 
 def parse_mutation_proposal(response_text: str) -> MutationProposal:
-    try:
-        payload = json.loads(response_text)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise ValueError("Reflection response must be valid JSON.") from exc
+    payload = _decode_mutation_payload(response_text)
     if not isinstance(payload, dict) or set(payload) != {
         "analysis",
         "system_instruction",
@@ -264,6 +271,60 @@ def parse_mutation_proposal(response_text: str) -> MutationProposal:
     return MutationProposal(
         analysis=analysis.strip(),
         system_instruction=instruction.strip(),
+    )
+
+
+def _decode_mutation_payload(response_text: str) -> Any:
+    if not isinstance(response_text, str):
+        raise ValueError("Reflection response must be a JSON string.")
+    normalized = response_text.strip()
+    if not normalized:
+        raise ValueError("Reflection response must be a non-empty JSON string.")
+
+    try:
+        return json.loads(normalized)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        try:
+            candidate = _embedded_json_object(normalized)
+        except (json.JSONDecodeError, RecursionError):
+            candidate = None
+        if candidate is not None:
+            return candidate
+        raise ValueError(_json_decode_diagnostic(response_text, exc)) from exc
+
+
+def _embedded_json_object(response_text: str) -> dict[str, Any] | None:
+    start = response_text.find("{")
+    end = response_text.rfind("}")
+    if start < 0 or end < start:
+        return None
+    prefix = response_text[:start]
+    suffix = response_text[end + 1 :]
+    if any(token in prefix or token in suffix for token in "{}[]"):
+        return None
+    payload = json.loads(response_text[start : end + 1])
+    return payload if isinstance(payload, dict) else None
+
+
+def _json_decode_diagnostic(
+    response_text: str,
+    error: json.JSONDecodeError | RecursionError,
+) -> str:
+    stripped = response_text.strip()
+    digest = hashlib.sha256(response_text.encode("utf-8")).hexdigest()
+    if isinstance(error, json.JSONDecodeError):
+        decode_detail = (
+            f"decode_error={error.msg!r} line={error.lineno} column={error.colno}"
+        )
+    else:
+        decode_detail = "decode_error='maximum nesting depth exceeded'"
+    return (
+        "Reflection response must contain one valid JSON object. "
+        f"{decode_detail} "
+        f"chars={len(response_text)} bytes={len(response_text.encode('utf-8'))} "
+        f"sha256={digest} "
+        f"starts_with_code_fence={str(stripped.startswith('```')).lower()} "
+        f"ends_with_code_fence={str(stripped.endswith('```')).lower()}"
     )
 
 

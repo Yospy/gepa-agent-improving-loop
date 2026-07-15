@@ -1,7 +1,40 @@
 # Todo
 
 ## Active Sprint
-`sprints/gpt-5-5-evaluator-parity-v1.md`
+`sprints/latest-gepa-results-publication-v1.md`
+
+## Latest GEPA Results Publication V1 (Sprint 26)
+- [x] Update the README with the verified eight-case GEPA metrics and findings.
+- [x] Review and verify the complete accumulated implementation.
+- [ ] Create a publication branch, commit, push, and open a draft PR.
+
+## Fireworks OSS Model Integration V1 (Sprint 25)
+- [x] Lock the Fireworks transport and model-role contracts with offline tests.
+- [x] Implement Chat Completions translation and continuation handling.
+- [x] Wire MiniMax M3 for agents and GLM-5.2 for the GEPA teacher.
+- [x] Update active provider/environment documentation.
+- [x] Run focused, full, compile, diff, side-effect, and edge-case verification.
+- [x] Add and verify the confirmed MiniMax/GLM generation payload fields.
+- [x] Harden GLM structured output, parse diagnostics, and GEPA phase logging.
+- [x] Run one live GEPA generation and confirm a child is created and evaluated.
+- [ ] Verify official Fireworks model/tool metadata after outbound-network approval.
+- [x] Run a bounded live smoke only after separate inference approval.
+
+## Hard Evidence Scenario Suite V2 (Sprint 24)
+- [x] Add failing hard-case contracts.
+- [x] Add isolated Contoso environment records and policies.
+- [x] Replace all eight training fixtures with evidence-topology cases.
+- [x] Restore prompt-controlled action choice with tool safety enforcement.
+- [x] Extend evaluator and deterministic oracle semantics.
+- [x] Run offline verification and structured review.
+- [x] Run live GPT-5.5 baseline and identify GEPA improvement signal.
+
+## Adversarial Scenario Suite V1 (Sprint 23)
+- [x] Add failing inventory and adversarial-boundary tests.
+- [x] Add four evidence-grounded adversarial scenario fixtures.
+- [x] Update complete-suite count assertions and documentation.
+- [x] Run focused, full, compile, and diff verification.
+- [x] Complete structured boundary, side-effect, and sprint review.
 
 ## GPT-5.5 Evaluator Parity V1 (Sprint 22)
 - [x] Add exact GPT-5.5 phrase regressions and negative controls.

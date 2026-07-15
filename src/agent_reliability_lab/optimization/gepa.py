@@ -6,12 +6,16 @@ import argparse
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
+import sys
 from typing import Any, Callable, Protocol
 from uuid import uuid4
 
-from agent_reliability_lab.agents.openai_runner import DEFAULT_OPENAI_MODEL
+from agent_reliability_lab.agents.openai_runner import (
+    DEFAULT_FIREWORKS_TEACHER_MODEL,
+)
 from agent_reliability_lab.environment import DEFAULT_ENVIRONMENT_PATH
 from agent_reliability_lab.optimization.candidates import (
     DEFAULT_CANDIDATE_POOL,
@@ -55,6 +59,7 @@ RETRYABLE_MUTATION_ERROR_TYPES = frozenset(
 )
 Clock = Callable[[], datetime]
 OptimizationIDFactory = Callable[[], str]
+ProgressCallback = Callable[[str], None]
 
 
 class CandidateSuiteRunner(Protocol):
@@ -259,6 +264,7 @@ def run_gepa_optimization(
     mutation_id_factory: MutationIDFactory = lambda: f"mutation_{uuid4().hex}",
     optimization_id_factory: OptimizationIDFactory = lambda: f"gepa_{uuid4().hex}",
     clock: Clock = lambda: datetime.now(timezone.utc),
+    progress_callback: ProgressCallback | None = None,
 ) -> GEPAOptimizationResult:
     started_at = clock()
     optimization_id = _required_identifier(
@@ -269,6 +275,11 @@ def run_gepa_optimization(
     current_parent = current_pool.require(config.initial_candidate_id)
     _assert_mutable_candidate(current_parent)
     generations: list[GEPAGeneration] = []
+    _report_progress(
+        progress_callback,
+        f"optimization={optimization_id} parent_suite starting "
+        f"candidate={current_parent.candidate_id}",
+    )
 
     try:
         parent_suite = _run_suite(
@@ -277,6 +288,7 @@ def run_gepa_optimization(
             current_pool,
             suite_runner,
             clock,
+            progress_callback,
         )
     except Exception as exc:
         return _finish(
@@ -289,9 +301,16 @@ def run_gepa_optimization(
             "parent_suite_error",
             str(exc),
             clock,
+            progress_callback,
         )
 
     initial_parent_run_ids = _run_ids(parent_suite)
+    _report_progress(
+        progress_callback,
+        f"optimization={optimization_id} parent_suite completed "
+        f"complete={str(parent_suite.complete).lower()} "
+        f"runs={len(parent_suite.records)}/{parent_suite.expected_run_count}",
+    )
     if not parent_suite.complete:
         return _finish(
             optimization_id,
@@ -303,6 +322,7 @@ def run_gepa_optimization(
             "parent_suite_incomplete",
             _suite_error_detail(parent_suite),
             clock,
+            progress_callback,
         )
     if _suite_is_perfect(parent_suite):
         return _finish(
@@ -315,9 +335,14 @@ def run_gepa_optimization(
             "perfect_parent",
             None,
             clock,
+            progress_callback,
         )
 
     for generation_number in range(1, config.max_generations + 1):
+        _report_progress(
+            progress_callback,
+            f"optimization={optimization_id} generation={generation_number} starting",
+        )
         parent_run_ids = _run_ids(parent_suite)
         try:
             bundle = build_reflection_bundle(current_parent, parent_suite)
@@ -341,6 +366,7 @@ def run_gepa_optimization(
                 "reflection_input_error",
                 str(exc),
                 clock,
+                progress_callback,
             )
 
         child_trials: list[GEPAChildTrial] = []
@@ -354,6 +380,13 @@ def run_gepa_optimization(
             mutation_attempts: list[MutationResult] = []
             attempt_bundle = proposal_bundle
             for attempt_number in range(1, config.max_mutation_attempts + 1):
+                _report_progress(
+                    progress_callback,
+                    f"optimization={optimization_id} generation={generation_number} "
+                    f"child={child_order + 1}/{config.children_per_generation} "
+                    f"mutation_attempt={attempt_number}/{config.max_mutation_attempts} "
+                    "starting",
+                )
                 mutation = reflect_and_create_child(
                     current_parent,
                     attempt_bundle,
@@ -362,6 +395,17 @@ def run_gepa_optimization(
                     clock=clock,
                 )
                 mutation_attempts.append(mutation)
+                mutation_error_type = (
+                    mutation.error.error_type if mutation.error is not None else "none"
+                )
+                _report_progress(
+                    progress_callback,
+                    f"optimization={optimization_id} generation={generation_number} "
+                    f"child={child_order + 1}/{config.children_per_generation} "
+                    f"mutation_attempt={attempt_number}/{config.max_mutation_attempts} "
+                    f"completed succeeded={str(mutation.succeeded).lower()} "
+                    f"error_type={mutation_error_type}",
+                )
                 if mutation.succeeded or not _mutation_is_retryable(mutation):
                     break
                 if attempt_number < config.max_mutation_attempts:
@@ -395,6 +439,7 @@ def run_gepa_optimization(
                     "mutation_failed",
                     mutation.error.message if mutation.error else None,
                     clock,
+                    progress_callback,
                 )
 
             assert mutation.child is not None
@@ -432,15 +477,23 @@ def run_gepa_optimization(
                     "candidate_registration_error",
                     str(exc),
                     clock,
+                    progress_callback,
                 )
 
             try:
+                _report_progress(
+                    progress_callback,
+                    f"optimization={optimization_id} generation={generation_number} "
+                    f"child={child_order + 1}/{config.children_per_generation} "
+                    f"child_suite starting candidate={child.candidate_id}",
+                )
                 child_suite = _run_suite(
                     child.candidate_id,
                     config,
                     generation_pool,
                     suite_runner,
                     clock,
+                    progress_callback,
                 )
             except Exception as exc:
                 error = OptimizationError("child_suite_error", str(exc))
@@ -473,8 +526,16 @@ def run_gepa_optimization(
                     "child_suite_error",
                     str(exc),
                     clock,
+                    progress_callback,
                 )
 
+            _report_progress(
+                progress_callback,
+                f"optimization={optimization_id} generation={generation_number} "
+                f"child={child_order + 1}/{config.children_per_generation} "
+                f"child_suite completed complete={str(child_suite.complete).lower()} "
+                f"runs={len(child_suite.records)}/{child_suite.expected_run_count}",
+            )
             child_run_ids = _run_ids(child_suite)
             if not child_suite.complete:
                 detail = _suite_error_detail(child_suite)
@@ -508,6 +569,7 @@ def run_gepa_optimization(
                     "child_suite_incomplete",
                     detail,
                     clock,
+                    progress_callback,
                 )
 
             try:
@@ -543,9 +605,16 @@ def run_gepa_optimization(
                     "comparison_error",
                     str(exc),
                     clock,
+                    progress_callback,
                 )
 
             decision = decide_candidate_acceptance(comparison)
+            _report_progress(
+                progress_callback,
+                f"optimization={optimization_id} generation={generation_number} "
+                f"child={child_order + 1}/{config.children_per_generation} "
+                f"decision={decision.reason} accepted={str(decision.accepted).lower()}",
+            )
             trial = GEPAChildTrial(
                 mutation=mutation,
                 child_candidate_id=child.candidate_id,
@@ -596,6 +665,7 @@ def run_gepa_optimization(
                 "child_rejected",
                 selected_trial.decision.reason,
                 clock,
+                progress_callback,
             )
 
         current_pool = generation_pool
@@ -612,6 +682,7 @@ def run_gepa_optimization(
                 "perfect_child",
                 None,
                 clock,
+                progress_callback,
             )
 
     return _finish(
@@ -624,6 +695,7 @@ def run_gepa_optimization(
         "generation_limit_reached",
         None,
         clock,
+        progress_callback,
     )
 
 
@@ -652,7 +724,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-generations", type=int, default=1)
     parser.add_argument("--max-mutation-attempts", type=int, default=2)
     parser.add_argument("--children-per-generation", type=int, default=1)
-    parser.add_argument("--model", default=DEFAULT_OPENAI_MODEL)
+    parser.add_argument(
+        "--teacher-model",
+        "--model",
+        dest="teacher_model",
+        default=_fireworks_teacher_model(),
+    )
     parser.add_argument("--environment-path", default=str(DEFAULT_ENVIRONMENT_PATH))
     parser.add_argument("--output-dir", default=str(DEFAULT_RUN_OUTPUT_DIR))
     parser.add_argument(
@@ -681,7 +758,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         result = run_gepa_optimization(
             config,
-            reflection_client=OpenAIReflectionClient(model=args.model),
+            reflection_client=OpenAIReflectionClient(model=args.teacher_model),
+            progress_callback=_stderr_progress,
         )
         history_path = None
         if not args.no_persist:
@@ -711,13 +789,27 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+def _fireworks_teacher_model() -> str:
+    env_model = os.environ.get("FIREWORKS_TEACHER_MODEL")
+    if env_model:
+        return env_model
+    return DEFAULT_FIREWORKS_TEACHER_MODEL
+
+
 def _run_suite(
     candidate_id: str,
     config: GEPAConfig,
     candidate_pool: CandidatePool,
     suite_runner: CandidateSuiteRunner,
     clock: Clock,
+    progress_callback: ProgressCallback | None,
 ) -> CandidateSuiteRun:
+    suite_progress = None
+    if progress_callback is not None:
+        suite_progress = lambda message: _report_progress(
+            progress_callback,
+            f"candidate={candidate_id} {message}",
+        )
     return suite_runner(
         candidate_id,
         config.suite,
@@ -726,7 +818,20 @@ def _run_suite(
         output_dir=config.run_output_dir,
         persist=config.persist_runs,
         clock=clock,
+        progress_callback=suite_progress,
     )
+
+
+def _report_progress(
+    progress_callback: ProgressCallback | None,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(message)
+
+
+def _stderr_progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _suite_is_perfect(suite: CandidateSuiteRun) -> bool:
@@ -860,7 +965,12 @@ def _finish(
     stop_reason: str,
     stop_detail: str | None,
     clock: Clock,
+    progress_callback: ProgressCallback | None,
 ) -> GEPAOptimizationResult:
+    _report_progress(
+        progress_callback,
+        f"optimization={optimization_id} completed stop_reason={stop_reason}",
+    )
     return GEPAOptimizationResult(
         optimization_id=optimization_id,
         started_at=started_at,

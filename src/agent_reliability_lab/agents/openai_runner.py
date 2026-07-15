@@ -1,8 +1,9 @@
-"""OpenAI Responses API support-agent runner."""
+"""Provider-neutral support-agent loop with a Fireworks live adapter."""
 
 from __future__ import annotations
 
 import json
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,7 +29,14 @@ from agent_reliability_lab.environment.tools import SupportToolService
 
 OPENAI_POLICY_AGENT_NAME = "openai_support_agent"
 OPENAI_DEGRADED_AGENT_VERSION = "openai-degraded-policy-v2"
-DEFAULT_OPENAI_MODEL = "gpt-5.5"
+FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+DEFAULT_FIREWORKS_AGENT_MODEL = "accounts/fireworks/models/minimax-m3"
+DEFAULT_FIREWORKS_TEACHER_MODEL = "accounts/fireworks/models/glm-5p2"
+DEFAULT_FIREWORKS_AGENT_MAX_TOKENS = 64_000
+DEFAULT_FIREWORKS_TEACHER_MAX_TOKENS = 131_072
+DEFAULT_FIREWORKS_TOP_K = 40
+DEFAULT_FIREWORKS_PRESENCE_PENALTY = 0.0
+DEFAULT_FIREWORKS_FREQUENCY_PENALTY = 0.0
 DEFAULT_MAX_STEPS = 12
 DEFAULT_TEMPERATURE = 0.0
 
@@ -39,13 +47,6 @@ EVIDENCE_READ_TOOL_ORDER = (
     "get_mfa_status",
     "get_sessions",
 )
-
-
-def _model_supports_temperature(model: str) -> bool:
-    normalized = model.strip().casefold()
-    return not (
-        normalized == "gpt-5.5" or normalized.startswith("gpt-5.5-")
-    )
 
 
 DEGRADED_SYSTEM_INSTRUCTION = """You are a careful support agent for a B2B SaaS company. Resolve the ticket from tool evidence and active support policy, never from customer wording alone.
@@ -75,31 +76,49 @@ class ResponsesClient(Protocol):
         input: Any,
         tools: list[dict[str, Any]],
         temperature: float,
+        max_tokens: int,
+        top_k: int,
+        presence_penalty: float,
+        frequency_penalty: float,
         parallel_tool_calls: bool,
+        response_format: dict[str, Any] | None = None,
         previous_response_id: str | None = None,
     ) -> Any:
         ...
 
 
-class OpenAIResponsesClient:
-    """Thin lazy wrapper over the OpenAI SDK.
+class FireworksChatCompletionsClient:
+    """Adapt Fireworks Chat Completions to the runner's response protocol."""
 
-    The import is intentionally lazy so offline tests do not need the package or
-    an API key. The SDK reads `OPENAI_API_KEY` from the environment.
-    """
-
-    def __init__(self, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        client: Any | None = None,
+        *,
+        api_key: str | None = None,
+    ) -> None:
         if client is None:
+            resolved_key = api_key or os.environ.get("FIREWORKS_API_KEY")
+            if not isinstance(resolved_key, str) or not resolved_key.strip():
+                raise RuntimeError(
+                    "FIREWORKS_API_KEY is required for live Fireworks runs."
+                )
             try:
                 from openai import OpenAI
             except ImportError as exc:
                 raise RuntimeError(
-                    "The openai package is required for live OpenAI agent runs."
+                    "The openai package is required for live Fireworks runs."
                 ) from exc
-            client = OpenAI()
-        if not hasattr(client, "responses"):
-            raise RuntimeError("OpenAI client does not expose responses API")
+            client = OpenAI(
+                api_key=resolved_key.strip(),
+                base_url=FIREWORKS_BASE_URL,
+            )
+        chat = getattr(client, "chat", None)
+        if chat is None or not hasattr(chat, "completions"):
+            raise RuntimeError(
+                "Fireworks-compatible client does not expose chat.completions"
+            )
         self._client = client
+        self._histories: dict[str, list[dict[str, Any]]] = {}
 
     def create_response(
         self,
@@ -109,21 +128,185 @@ class OpenAIResponsesClient:
         input: Any,
         tools: list[dict[str, Any]],
         temperature: float,
+        max_tokens: int,
+        top_k: int,
+        presence_penalty: float,
+        frequency_penalty: float,
         parallel_tool_calls: bool,
+        response_format: dict[str, Any] | None = None,
         previous_response_id: str | None = None,
     ) -> Any:
+        messages = self._messages_for_request(
+            instructions=instructions,
+            input=input,
+            previous_response_id=previous_response_id,
+        )
         kwargs = {
             "model": model,
-            "instructions": instructions,
-            "input": input,
-            "tools": tools,
-            "parallel_tool_calls": parallel_tool_calls,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "extra_body": {"top_k": top_k},
         }
-        if _model_supports_temperature(model):
-            kwargs["temperature"] = temperature
-        if previous_response_id is not None:
-            kwargs["previous_response_id"] = previous_response_id
-        return self._client.responses.create(**kwargs)
+        if tools:
+            kwargs["tools"] = [_chat_completion_tool(tool) for tool in tools]
+            kwargs["parallel_tool_calls"] = parallel_tool_calls
+        if response_format is not None:
+            kwargs["response_format"] = deepcopy(response_format)
+        completion = self._client.chat.completions.create(**kwargs)
+        normalized, assistant_message = _normalize_chat_completion(completion)
+        response_id = normalized["id"]
+        if response_id in self._histories:
+            raise RuntimeError(
+                f"Fireworks returned duplicate response id: {response_id!r}"
+            )
+        self._histories[response_id] = [*messages, assistant_message]
+        return normalized
+
+    def _messages_for_request(
+        self,
+        *,
+        instructions: str,
+        input: Any,
+        previous_response_id: str | None,
+    ) -> list[dict[str, Any]]:
+        if previous_response_id is None:
+            if not isinstance(input, str):
+                raise ValueError("Initial Fireworks input must be a string.")
+            return [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": input},
+            ]
+
+        history = self._histories.get(previous_response_id)
+        if history is None:
+            raise ValueError(
+                "Unknown Fireworks previous_response_id: "
+                f"{previous_response_id!r}"
+            )
+        if not isinstance(input, list) or not input:
+            raise ValueError(
+                "Fireworks continuation input must contain tool outputs."
+            )
+        messages = deepcopy(history)
+        for item in input:
+            if not isinstance(item, dict) or item.get("type") != "function_call_output":
+                raise ValueError(
+                    "Fireworks continuation items must be function_call_output objects."
+                )
+            call_id = item.get("call_id")
+            output = item.get("output")
+            if not isinstance(call_id, str) or not call_id:
+                raise ValueError("Fireworks tool output call_id must be non-empty.")
+            if not isinstance(output, str):
+                raise ValueError("Fireworks tool output must be a string.")
+            messages.append(
+                {"role": "tool", "tool_call_id": call_id, "content": output}
+            )
+        return messages
+
+
+def _chat_completion_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    if tool.get("type") != "function":
+        raise ValueError("Only function tools are supported by Fireworks.")
+    function = {
+        key: deepcopy(value)
+        for key, value in tool.items()
+        if key != "type"
+    }
+    return {"type": "function", "function": function}
+
+
+def _normalize_chat_completion(
+    completion: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    response_id = _value(completion, "id")
+    if not isinstance(response_id, str) or not response_id:
+        raise RuntimeError("Fireworks completion did not include an id.")
+    choices = _value(completion, "choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise RuntimeError("Fireworks completion must include exactly one choice.")
+
+    choice = choices[0]
+    message = _value(choice, "message")
+    if message is None:
+        raise RuntimeError("Fireworks completion choice did not include a message.")
+    content = _value(message, "content")
+    if content is None:
+        output_text = ""
+    elif isinstance(content, str):
+        output_text = content
+    else:
+        raise RuntimeError("Fireworks completion message content must be text or null.")
+
+    raw_tool_calls = _value(message, "tool_calls")
+    if raw_tool_calls is None:
+        raw_tool_calls = []
+    if not isinstance(raw_tool_calls, list):
+        raise RuntimeError("Fireworks completion tool_calls must be a list.")
+
+    output: list[dict[str, Any]] = []
+    normalized_tool_calls: list[dict[str, Any]] = []
+    for tool_call in raw_tool_calls:
+        call_id = _value(tool_call, "id")
+        call_type = _value(tool_call, "type")
+        function = _value(tool_call, "function")
+        name = _value(function, "name")
+        arguments = _value(function, "arguments")
+        if (
+            not isinstance(call_id, str)
+            or not call_id
+            or call_type not in (None, "function")
+            or not isinstance(name, str)
+            or not name
+            or not isinstance(arguments, str)
+        ):
+            raise RuntimeError("Fireworks returned an invalid function tool call.")
+        output.append(
+            {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+            }
+        )
+        normalized_tool_calls.append(
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+        )
+
+    if output_text:
+        output.insert(
+            0,
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": output_text}],
+            },
+        )
+
+    finish_reason = _value(choice, "finish_reason")
+    completed = finish_reason in (None, "stop", "tool_calls")
+    normalized: dict[str, Any] = {
+        "id": response_id,
+        "status": "completed" if completed else "incomplete",
+        "output_text": output_text,
+        "output": output,
+    }
+    if not completed:
+        normalized["incomplete_details"] = {"finish_reason": finish_reason}
+
+    assistant_message: dict[str, Any] = {
+        "role": "assistant",
+        "content": output_text or None,
+    }
+    if normalized_tool_calls:
+        assistant_message["tool_calls"] = normalized_tool_calls
+    return normalized, assistant_message
 
 
 @dataclass(frozen=True)
@@ -141,8 +324,12 @@ class OpenAISupportAgent:
         system_instruction: str,
         agent_name: str = OPENAI_POLICY_AGENT_NAME,
         agent_version: str = OPENAI_DEGRADED_AGENT_VERSION,
-        model: str = DEFAULT_OPENAI_MODEL,
+        model: str = DEFAULT_FIREWORKS_AGENT_MODEL,
         temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_FIREWORKS_AGENT_MAX_TOKENS,
+        top_k: int = DEFAULT_FIREWORKS_TOP_K,
+        presence_penalty: float = DEFAULT_FIREWORKS_PRESENCE_PENALTY,
+        frequency_penalty: float = DEFAULT_FIREWORKS_FREQUENCY_PENALTY,
         max_steps: int = DEFAULT_MAX_STEPS,
         responses_client: ResponsesClient | None = None,
         clock: Any | None = None,
@@ -151,14 +338,22 @@ class OpenAISupportAgent:
             raise ValueError("system_instruction must not be empty")
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1")
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be at least 1")
+        if top_k < 1:
+            raise ValueError("top_k must be at least 1")
         self._tools = tools
         self._system_instruction = system_instruction
         self.agent_name = agent_name
         self.agent_version = agent_version
         self._model = model
         self._temperature = temperature
+        self._max_tokens = max_tokens
+        self._top_k = top_k
+        self._presence_penalty = presence_penalty
+        self._frequency_penalty = frequency_penalty
         self._max_steps = max_steps
-        self._client = responses_client or OpenAIResponsesClient()
+        self._client = responses_client or FireworksChatCompletionsClient()
         self._clock = clock or _utc_now
 
     def run(self, visible_scenario: dict[str, Any]) -> OpenAIAgentResult:
@@ -198,7 +393,12 @@ class OpenAISupportAgent:
                         unlock_denied=unlock_denied,
                     ),
                     temperature=self._temperature,
+                    max_tokens=self._max_tokens,
+                    top_k=self._top_k,
+                    presence_penalty=self._presence_penalty,
+                    frequency_penalty=self._frequency_penalty,
                     parallel_tool_calls=False,
+                    response_format=None,
                     previous_response_id=previous_response_id,
                 )
             except Exception as exc:  # pragma: no cover - exact SDK errors vary.
@@ -392,9 +592,12 @@ def _tool_schemas_for_state(
         schema["parameters"]["properties"]["limit"]["minimum"] = 5
         return [schema]
 
-    if "verified-requester" in ticket_tags and not unlock_denied:
-        return [_bound_tool_schema("unlock_user", "user_id", requester_user_id)]
-    return [_bound_tool_schema("escalate_case", "ticket_id", visible_ticket_id)]
+    if unlock_denied:
+        return [_bound_tool_schema("escalate_case", "ticket_id", visible_ticket_id)]
+    return [
+        _bound_tool_schema("unlock_user", "user_id", requester_user_id),
+        _bound_tool_schema("escalate_case", "ticket_id", visible_ticket_id),
+    ]
 
 
 def _tool_schema(tool_name: str) -> dict[str, Any]:

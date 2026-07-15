@@ -34,6 +34,35 @@ class EnvironmentStateTests(unittest.TestCase):
         self.assertEqual(state.metadata.primary_ticket_id, "tkt_1001")
         self.assertEqual(state.metadata.primary_user_id, "usr_ava_chou")
 
+    def test_hard_suite_environment_has_independent_contoso_bindings(self) -> None:
+        state = load_seed_state()
+        expected = {
+            "tkt_7001": "usr_aria_kim",
+            "tkt_7002": "usr_ben_okafor",
+            "tkt_7003": "usr_chloe_martin",
+            "tkt_7004": "usr_dev_shah",
+            "tkt_7005": "usr_emma_wilson",
+            "tkt_7006": "usr_finn_lee",
+            "tkt_7007": "usr_gia_rossi",
+            "tkt_7008": "usr_hugo_santos",
+        }
+
+        for ticket_id, user_id in expected.items():
+            with self.subTest(ticket_id=ticket_id):
+                self.assertIn(ticket_id, state.tickets)
+                self.assertIn(user_id, state.users)
+                self.assertEqual(
+                    state.tickets[ticket_id].requester_user_id,
+                    user_id,
+                )
+                self.assertEqual(
+                    state.users[user_id].account_id,
+                    "acct_contoso_prod",
+                )
+
+        self.assertIn("pol_password_reset_v1", state.support_policies)
+        self.assertIn("pol_account_compromise_v1", state.support_policies)
+
     def test_reset_restores_original_hash(self) -> None:
         store = EnvironmentStore.from_seed()
         original_hash = store.state_hash()

@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_reliability_lab.optimization.candidates import (  # noqa: E402
     DEFAULT_CANDIDATE_POOL,
     Candidate,
+)
+from agent_reliability_lab.agents.openai_runner import (  # noqa: E402
+    DEFAULT_FIREWORKS_TEACHER_MAX_TOKENS,
+    DEFAULT_FIREWORKS_TOP_K,
 )
 from agent_reliability_lab.optimization.reflection import (  # noqa: E402
     MAX_SYSTEM_INSTRUCTION_LENGTH,
@@ -258,6 +263,71 @@ class GEPAReflectionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     parse_mutation_proposal(response)
 
+    def test_mutation_parser_accepts_one_wrapped_json_object(self) -> None:
+        payload = json.dumps(
+            {
+                "analysis": "Generalize across failures.",
+                "system_instruction": "Inspect {all} evidence before acting.",
+            }
+        )
+        variants = (
+            f"  {payload}\n",
+            f"```json\n{payload}\n```",
+            f"```\n{payload}\n```",
+            f"Here is the proposal:\n{payload}\nDone.",
+        )
+
+        for response in variants:
+            with self.subTest(response=response):
+                proposal = parse_mutation_proposal(response)
+                self.assertEqual(proposal.analysis, "Generalize across failures.")
+                self.assertEqual(
+                    proposal.system_instruction,
+                    "Inspect {all} evidence before acting.",
+                )
+
+    def test_mutation_parser_rejects_ambiguous_or_repaired_json(self) -> None:
+        valid = '{"analysis":"a","system_instruction":"b"}'
+        invalid = (
+            f"{valid}\n{valid}",
+            f"```json\n{valid}\n```\n```json\n{valid}\n```",
+            f"[{valid}]",
+            "{'analysis':'a','system_instruction':'b'}",
+            '{"analysis":"a","system_instruction":"b",}',
+            '{"analysis":"a","system_instruction":',
+        )
+
+        for response in invalid:
+            with self.subTest(response=response):
+                with self.assertRaises(ValueError):
+                    parse_mutation_proposal(response)
+
+    def test_invalid_mutation_json_reports_safe_shape_diagnostics(self) -> None:
+        response = "```json\n{not-json}\n```"
+
+        with self.assertRaises(ValueError) as raised:
+            parse_mutation_proposal(response)
+
+        message = str(raised.exception)
+        self.assertIn("line=1", message)
+        self.assertIn("column=1", message)
+        self.assertIn("chars=22", message)
+        self.assertIn("sha256=", message)
+        self.assertIn("starts_with_code_fence=true", message)
+        self.assertIn("ends_with_code_fence=true", message)
+        self.assertNotIn("not-json", message)
+
+    def test_recursive_json_decoder_failure_is_reported_safely(self) -> None:
+        with patch(
+            "agent_reliability_lab.optimization.reflection.json.loads",
+            side_effect=RecursionError("nested response"),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "Reflection response must contain",
+            ):
+                parse_mutation_proposal("proposal: {}")
+
     def test_create_child_candidate_records_lineage_and_provenance(self) -> None:
         parent = DEFAULT_CANDIDATE_POOL.require(PARENT_ID)
         proposal = parse_mutation_proposal(
@@ -438,7 +508,12 @@ class GEPAReflectionTests(unittest.TestCase):
         self.assertEqual(call["model"], "test-model")
         self.assertEqual(call["tools"], [])
         self.assertEqual(call["temperature"], 0.0)
+        self.assertEqual(call["max_tokens"], DEFAULT_FIREWORKS_TEACHER_MAX_TOKENS)
+        self.assertEqual(call["top_k"], DEFAULT_FIREWORKS_TOP_K)
+        self.assertEqual(call["presence_penalty"], 0.0)
+        self.assertEqual(call["frequency_penalty"], 0.0)
         self.assertFalse(call["parallel_tool_calls"])
+        self.assertEqual(call["response_format"], {"type": "json_object"})
         self.assertIn(PARENT_ID, call["input"])
 
 
