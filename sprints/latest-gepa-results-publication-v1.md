@@ -50,3 +50,4 @@
 - Credential scan found no tracked secret values. `.env`, `.runs/`, `.gepa-runs/`, `.release-runs/`, and `.venv/` remain excluded from publication.
 - Side-effect review: live calls remain opt-in; automated verification remains offline; runtime policy gates, hidden-truth separation, and release-gate boundaries remain intact.
 - Structured self-review: the README uses the persisted run as its source of truth, avoids claiming production accuracy, and publishes the implementation and tests needed to explain the result.
+- Publication: commit `c7e2966` was pushed on `codex/fireworks-gepa-perfect-run`; draft PR #3 targets `main` and GitHub reports it as mergeable with a clean merge state.

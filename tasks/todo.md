@@ -6,7 +6,7 @@
 ## Latest GEPA Results Publication V1 (Sprint 26)
 - [x] Update the README with the verified eight-case GEPA metrics and findings.
 - [x] Review and verify the complete accumulated implementation.
-- [ ] Create a publication branch, commit, push, and open a draft PR.
+- [x] Create a publication branch, commit, push, and open a draft PR.
 
 ## Fireworks OSS Model Integration V1 (Sprint 25)
 - [x] Lock the Fireworks transport and model-role contracts with offline tests.
