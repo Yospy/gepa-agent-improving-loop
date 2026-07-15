@@ -87,12 +87,12 @@ class CandidateSuiteTests(unittest.TestCase):
             for _ in range(2)
         ]
         self.assertEqual(calls, expected_calls)
-        self.assertEqual(result.expected_run_count, 8)
-        self.assertEqual(len(result.records), 8)
+        self.assertEqual(result.expected_run_count, 16)
+        self.assertEqual(len(result.records), 16)
         self.assertEqual(result.errors, ())
         self.assertTrue(result.complete)
         self.assertIsNotNone(result.matrix)
-        self.assertEqual(len(result.matrix.cells), 4)
+        self.assertEqual(len(result.matrix.cells), 8)
 
     def test_suite_reports_start_and_terminal_progress_for_each_rollout(self) -> None:
         messages: list[str] = []
@@ -124,11 +124,15 @@ class CandidateSuiteTests(unittest.TestCase):
         self.assertEqual(
             messages,
             [
-                "[1/2] starting scenario=support_login_lockout_v1 attempt=1/1",
-                "[1/2] completed scenario=support_login_lockout_v1 "
+                "[1/2] starting scenario="
+                "support_hard_current_mfa_v2 attempt=1/1",
+                "[1/2] completed scenario="
+                "support_hard_current_mfa_v2 "
                 "attempt=1/1 passed=true score=1.0000",
-                "[2/2] starting scenario=support_mfa_blocker_v1 attempt=1/1",
-                "[2/2] completed scenario=support_mfa_blocker_v1 "
+                "[2/2] starting scenario="
+                "support_hard_expired_verification_v2 attempt=1/1",
+                "[2/2] completed scenario="
+                "support_hard_expired_verification_v2 "
                 "attempt=1/1 passed=false score=0.9000",
             ],
         )
@@ -154,8 +158,10 @@ class CandidateSuiteTests(unittest.TestCase):
         self.assertEqual(
             messages,
             [
-                "[1/1] starting scenario=support_login_lockout_v1 attempt=1/1",
-                "[1/1] failed scenario=support_login_lockout_v1 "
+                "[1/1] starting scenario="
+                "support_hard_current_mfa_v2 attempt=1/1",
+                "[1/1] failed scenario="
+                "support_hard_current_mfa_v2 "
                 "attempt=1/1 error=RuntimeError",
             ],
         )
@@ -188,10 +194,13 @@ class CandidateSuiteTests(unittest.TestCase):
             scenario_runner=fake_runner,
         )
 
-        self.assertEqual(len(calls), 8)
-        self.assertEqual(len(result.records), 7)
+        self.assertEqual(len(calls), 16)
+        self.assertEqual(len(result.records), 15)
         self.assertEqual(len(result.errors), 1)
-        self.assertEqual(result.errors[0].scenario_id, "support_mfa_blocker_v1")
+        self.assertEqual(
+            result.errors[0].scenario_id,
+            "support_hard_latest_reset_failed_v2",
+        )
         self.assertEqual(result.errors[0].attempt_number, 1)
         self.assertEqual(result.errors[0].error_type, "RuntimeError")
         self.assertFalse(result.complete)
@@ -223,14 +232,14 @@ class CandidateSuiteTests(unittest.TestCase):
             progress_callback=messages.append,
         )
 
-        self.assertEqual(len(result.records), 4)
+        self.assertEqual(len(result.records), 8)
         self.assertEqual(len(result.errors), 1)
         self.assertEqual(result.errors[0].error_type, "agent_failure")
         self.assertIn("api_error", result.errors[0].message)
         self.assertFalse(result.complete)
         self.assertIsNone(result.matrix)
         self.assertIn(
-            "[1/4] failed scenario=support_login_lockout_v1 "
+            "[1/8] failed scenario=support_hard_current_mfa_v2 "
             "attempt=1/1 agent_failure=api_error",
             messages,
         )
@@ -309,7 +318,7 @@ class CandidateSuiteTests(unittest.TestCase):
         called_candidate_id, called_spec = run_suite.call_args.args
         self.assertEqual(called_candidate_id, BASELINE_CANDIDATE_ID)
         self.assertEqual(called_spec.repeat_count, 2)
-        self.assertEqual(len(called_spec.scenario_paths), 4)
+        self.assertEqual(len(called_spec.scenario_paths), 8)
         self.assertFalse(run_suite.call_args.kwargs["persist"])
         self.assertEqual(run_suite.call_args.kwargs["output_dir"], ".test-runs")
         self.assertEqual(

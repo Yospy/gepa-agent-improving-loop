@@ -29,12 +29,15 @@ class RunRecorderTests(unittest.TestCase):
             self.assertTrue(path.exists())
             saved = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(saved, record.to_dict())
-            self.assertEqual(record.scenario_id, "support_login_lockout_v1")
+            self.assertEqual(
+                record.scenario_id,
+                "support_hard_cross_midnight_lockout_v2",
+            )
             self.assertEqual(record.agent_version, "baseline-support-v1")
             self.assertTrue(record.evaluation["passed"])
             self.assertEqual(record.evaluation["score"], 1.0)
             self.assertNotEqual(record.initial_state_hash, record.final_state_hash)
-            self.assertEqual(record.state_diff["changed_tickets"], ["tkt_1001"])
+            self.assertEqual(record.state_diff["changed_tickets"], ["tkt_7001"])
             self.assertEqual(
                 record.state_diff["added_audit_entries"],
                 ["audit_tool_0001"],

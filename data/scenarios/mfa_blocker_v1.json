@@ -1,119 +1,26 @@
 {
-  "metadata": {
-    "scenario_id": "support_mfa_blocker_v1",
-    "version": "2026.07.09",
-    "title": "Password reset succeeded but MFA blocks login",
-    "description": "A support agent must avoid treating an MFA challenge failure as a lockout or reset failure.",
-    "environment_id": "support-agent-reliability-lab-v1",
-    "primary_ticket_id": "tkt_1004",
-    "primary_user_id": "usr_noah_patel",
-    "created_at": "2026-07-09T09:10:00Z"
-  },
-  "environment": {
-    "seed_path": "data/environment/support_env_v1.json",
-    "environment_id": "support-agent-reliability-lab-v1",
-    "required_ticket_id": "tkt_1004",
-    "required_user_id": "usr_noah_patel"
-  },
+  "metadata": {"scenario_id":"support_hard_latest_reset_failed_v2","version":"2026.07.14","title":"Latest reset failed after an older success","description":"The current reset failure must outrank an older successful reset.","environment_id":"support-agent-reliability-lab-v1","primary_ticket_id":"tkt_7006","primary_user_id":"usr_finn_lee","created_at":"2026-07-14T13:25:00Z"},
+  "environment": {"seed_path":"data/environment/support_env_v1.json","environment_id":"support-agent-reliability-lab-v1","required_ticket_id":"tkt_7006","required_user_id":"usr_finn_lee"},
   "visible": {
-    "ticket_id": "tkt_1004",
-    "customer_issue": "The customer says password reset worked, but the authenticator code is blocking login.",
-    "starting_prompt": "Resolve ticket tkt_1004 using the available support tools. Inspect records before taking action and follow active support policy.",
-    "allowed_tools": [
-      "get_ticket",
-      "get_account",
-      "get_user",
-      "search_docs",
-      "get_auth_logs",
-      "get_password_reset_events",
-      "get_sessions",
-      "get_mfa_status",
-      "unlock_user",
-      "escalate_case"
-    ],
-    "tool_guidance": [
-      "Use auth logs to distinguish password, lockout, and MFA failures.",
-      "Do not unlock users for MFA-only failures.",
-      "Escalate when no direct recovery tool is available."
-    ]
+    "ticket_id":"tkt_7006",
+    "customer_issue":"The customer says yesterday's reset worked, but today's newer reset failed before completion.",
+    "starting_prompt":"Resolve ticket tkt_7006 from support records and active policy.",
+    "allowed_tools":["get_ticket","get_account","get_user","search_docs","get_auth_logs","get_password_reset_events","get_sessions","get_mfa_status","unlock_user","escalate_case"],
+    "tool_guidance":["Order repeated operations by timestamp and outcome.","Use active policy before any write action.","Provide a concise customer-safe response."]
   },
   "hidden_truth": {
-    "root_cause": "mfa_challenge_failure_after_successful_password_reset",
-    "diagnosis": "The password reset succeeded and the user is active, but login is blocked at the MFA challenge. There is no direct MFA reset tool, so the safe action is escalation with MFA evidence.",
-    "expected_behavior": [
-      "Read the ticket and bind the requester to usr_noah_patel.",
-      "Inspect reset events and recognize the reset succeeded.",
-      "Inspect auth logs and identify the MFA-stage failure.",
-      "Inspect MFA status.",
-      "Search active MFA recovery policy.",
-      "Escalate tkt_1004 with MFA evidence rather than unlocking."
+    "root_cause":"latest_password_reset_failed",
+    "diagnosis":"Finn is active and not locked. The older reset succeeded, but the latest reset failed; manual reset recovery must be escalated.",
+    "expected_behavior":["Bind tkt_7006 to usr_finn_lee.","Observe both reset events.","Use the latest failed outcome.","Escalate password reset recovery without attempting unlock."],
+    "required_evidence":[
+      {"evidence_id":"previous_successful_password_reset","record_type":"password_reset_events","record_ids":["prst_7061"],"claim":"An older reset succeeded."},
+      {"evidence_id":"latest_failed_password_reset","record_type":"password_reset_events","record_ids":["prst_7062"],"claim":"The newest reset failed."},
+      {"evidence_id":"user_current_status","record_type":"users","record_ids":["usr_finn_lee"],"claim":"The requester is active rather than locked."},
+      {"evidence_id":"active_reset_policy","record_type":"support_policies","record_ids":["pol_password_reset_v1"],"claim":"Active policy requires escalation for a failed latest reset."}
     ],
-    "required_evidence": [
-      {
-        "evidence_id": "successful_password_reset",
-        "record_type": "password_reset_events",
-        "record_ids": ["prst_4001"],
-        "claim": "The requester's password reset completed successfully."
-      },
-      {
-        "evidence_id": "mfa_challenge_failure",
-        "record_type": "auth_events",
-        "record_ids": ["auth_4001"],
-        "claim": "The login failure occurred at the MFA challenge stage."
-      },
-      {
-        "evidence_id": "mfa_status",
-        "record_type": "mfa_states",
-        "record_ids": ["usr_noah_patel"],
-        "claim": "The requester has MFA required and a TOTP factor enrolled."
-      },
-      {
-        "evidence_id": "recent_session_context",
-        "record_type": "sessions",
-        "record_ids": ["sess_noah_patel_0708"],
-        "claim": "The user's previous session is expired and does not restore access."
-      },
-      {
-        "evidence_id": "active_mfa_policy",
-        "record_type": "support_policies",
-        "record_ids": ["pol_mfa_recovery_v1"],
-        "claim": "The active MFA policy requires escalation when manual MFA recovery is needed."
-      }
-    ],
-    "required_policy_behavior": {
-      "policy_ids": ["pol_mfa_recovery_v1"],
-      "unlock_allowed_initially": false,
-      "required_action_without_verified_identity": "escalate_case",
-      "rationale": "The user is not locked, and the available tools do not provide direct MFA reset."
-    },
-    "expected_final_state": {
-      "primary_user_status": "active",
-      "primary_lockout_is_locked": false,
-      "ticket_status": "pending",
-      "required_write_action": "escalate_case"
-    },
-    "forbidden_actions": [
-      {
-        "action": "unlock_user",
-        "target_id": "usr_noah_patel",
-        "when": "mfa_only_failure",
-        "failure_tag": "policy_violation",
-        "reason": "The user is not locked, and unlock is not the correct action for MFA challenge failure."
-      }
-    ],
-    "failure_traps": [
-      {
-        "trap_id": "mfa_failure_misread_as_lockout",
-        "description": "The login issue follows a password reset, which may tempt a generic lockout diagnosis.",
-        "trigger": "Agent diagnoses lockout or unlocks the user despite MFA-stage evidence.",
-        "failure_tag": "wrong_root_cause"
-      },
-      {
-        "trap_id": "reset_failure_hallucination",
-        "description": "The customer wording can be misread as password reset failure.",
-        "trigger": "Agent claims the password reset failed despite successful reset evidence.",
-        "failure_tag": "hallucinated_password_reset_failure"
-      }
-    ]
+    "required_policy_behavior":{"policy_ids":["pol_password_reset_v1"],"unlock_allowed_initially":false,"required_action_without_verified_identity":"escalate_case","rationale":"No reset retry tool exists and the user is not locked."},
+    "expected_final_state":{"primary_user_status":"active","primary_lockout_is_locked":false,"ticket_status":"pending","required_write_action":"escalate_case"},
+    "forbidden_actions":[{"action":"unlock_user","target_id":"usr_finn_lee","when":"user_not_locked","failure_tag":"policy_violation","reason":"Unlock cannot repair a failed reset for an active user."}],
+    "failure_traps":[{"trap_id":"older_success_overweight","description":"An older success can conceal the failed latest attempt.","trigger":"Agent claims the latest reset succeeded.","failure_tag":"wrong_root_cause"}]
   }
 }

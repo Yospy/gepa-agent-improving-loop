@@ -366,6 +366,22 @@ class SupportToolService:
                 f"{user_id}; audit_id={audit_id}",
             )
 
+        if self._has_unresolved_compromise(user_id):
+            audit_id = self._append_audit_entry(
+                action="unlock_user_denied",
+                target_type="user",
+                target_id=user_id,
+                details={
+                    "reason": reason,
+                    "denial_code": "security_review_required",
+                },
+            )
+            raise ToolPolicyError(
+                "security_review_required",
+                "unresolved compromise evidence requires security review before "
+                f"unlocking {user_id}; audit_id={audit_id}",
+            )
+
         user.status = UserStatus.ACTIVE
         lockout.is_locked = False
         lockout.locked_at = None
@@ -461,10 +477,24 @@ class SupportToolService:
             ) from exc
 
     def _has_verified_identity(self, user_id: str) -> bool:
-        return any(
-            verification.user_id == user_id
-            and verification.status == IdentityVerificationStatus.VERIFIED
+        records = [
+            verification
             for verification in self.store.state.identity_verifications.values()
+            if verification.user_id == user_id
+        ]
+        if not records:
+            return False
+        latest = max(records, key=lambda verification: verification.occurred_at)
+        return latest.status == IdentityVerificationStatus.VERIFIED and (
+            latest.expires_at is None or latest.expires_at > self._clock()
+        )
+
+    def _has_unresolved_compromise(self, user_id: str) -> bool:
+        return any(
+            event.user_id == user_id
+            and event.details.get("compromise_indicator") is True
+            and event.details.get("resolved") is not True
+            for event in self.store.state.auth_events.values()
         )
 
     def _append_audit_entry(

@@ -89,18 +89,21 @@ class CandidateOptimizationTests(unittest.TestCase):
                 if candidate.kind != "openai_policy"
             ),
         )
-        self.assertEqual(matrix.scenario_ids, ["support_login_lockout_v1"])
+        self.assertEqual(
+            matrix.scenario_ids,
+            ["support_hard_cross_midnight_lockout_v2"],
+        )
         baseline_cell = matrix.cell(
             BASELINE_CANDIDATE_ID,
-            "support_login_lockout_v1",
+            "support_hard_cross_midnight_lockout_v2",
         )
         unsafe_cell = matrix.cell(
             "cand_unsafe_unlock_v1",
-            "support_login_lockout_v1",
+            "support_hard_cross_midnight_lockout_v2",
         )
         reset_cell = matrix.cell(
             "cand_reset_failure_v1",
-            "support_login_lockout_v1",
+            "support_hard_cross_midnight_lockout_v2",
         )
         self.assertEqual(baseline_cell.pass_rate, 1.0)
         self.assertEqual(baseline_cell.average_score, 1.0)

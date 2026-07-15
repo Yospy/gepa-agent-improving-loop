@@ -14,7 +14,7 @@ adds repeated candidate-suite orchestration and strict per-scenario comparison.
 - The seed contains realistic company records, logs, docs, and policies.
 - Hidden evaluator truth is not stored in this environment fixture.
 - LLM/model calls and external network calls are out of scope for default
-  local verification. The optional OpenAI candidate path is live-run only.
+  local verification. The optional model-policy candidate path is live-run only.
 - Reflection mutation and UI are intentionally out of scope.
 
 ## Seed
@@ -67,9 +67,9 @@ Write tools:
 - `escalate_case(ticket_id, reason, evidence)`
 
 Every tool returns a `ToolResult` and records a `ToolCallRecord`. Write tools
-also add audit entries. `unlock_user` is policy-gated: the seeded lockout
-requires verified identity, so the initial fixture denies unlock and leaves the
-user locked until identity verification is marked `verified`.
+also add audit entries. `unlock_user` is policy-gated: it requires unexpired
+verified identity and rejects unresolved compromise indicators. Denied writes
+leave user and lockout state unchanged.
 
 ## Scenario
 
@@ -86,12 +86,16 @@ tools, and general tool guidance. Hidden fields define the root cause, required
 evidence, policy behavior, expected final state, forbidden actions, and failure
 traps for the future evaluator.
 
-Current scenarios:
+Current V2 training scenarios:
 
-- `support_login_lockout_v1`: password reset succeeded, but the unverified requester remains locked and must be escalated.
-- `support_wrong_user_lockout_v1`: similar same-account user trap; the agent must bind actions to the ticket requester.
-- `support_verified_unlock_v1`: lockout with verified identity; the correct action is `unlock_user`.
-- `support_mfa_blocker_v1`: password reset succeeded, but MFA challenge failure requires escalation instead of unlock.
+- `support_hard_cross_midnight_lockout_v2`: unverified lockout whose evidence crosses midnight.
+- `support_hard_delayed_verified_lockout_v2`: verified lockout whose decisive evidence predates the ticket by more than a day.
+- `support_hard_current_mfa_v2`: current MFA failure with a resolved historical access restriction.
+- `support_hard_current_lockout_after_mfa_v2`: current verified lockout with stale MFA noise.
+- `support_hard_reset_recovered_lockout_v2`: failed reset followed by successful reset and lockout.
+- `support_hard_latest_reset_failed_v2`: older successful reset followed by a genuinely failed latest reset.
+- `support_hard_verified_compromise_v2`: verified lockout with an unresolved compromise indicator.
+- `support_hard_expired_verification_v2`: stale verified tag contradicted by trusted expiry evidence.
 
 All scenario evidence IDs are bound to records in
 `data/environment/support_env_v1.json`, and the validator checks those bindings
@@ -268,27 +272,32 @@ This is intentionally not reflection mutation and not GEPA evolution yet. It
 creates the stable substrate needed for Phase 11: selected parent plus failure
 signal can later feed an updater that creates a new candidate.
 
-## OpenAI Agent Policy Interface
+## Fireworks Agent Policy Interface
 
-Phase 11 adds the first model-backed agent surface:
+Phase 11 added the first model-backed agent surface; the current live transport
+uses Fireworks Chat Completions:
 
 ```text
-candidate system_instruction -> Responses API while-loop -> fixed support tools -> evaluator
+candidate system_instruction -> Fireworks chat/tool loop -> fixed support tools -> evaluator
 ```
 
 The mutable GEPA surface is intentionally narrow: `Candidate.payload` stores
-only `system_instruction` for OpenAI policy candidates. Tool schemas,
+only `system_instruction` for the historical `openai_policy` candidate kind. Tool schemas,
 environment state, scenarios, evaluator logic, temperature, and max steps remain
-fixed. The model defaults in code and can be overridden at runtime with
-`OPENAI_MODEL`, outside candidate mutation.
+fixed. The agent model defaults to `accounts/fireworks/models/minimax-m3` and can
+be overridden with `FIREWORKS_AGENT_MODEL`, outside candidate mutation.
+MiniMax requests use `max_tokens=64000`; GLM-5.2 teacher requests use
+`max_tokens=131072`. Both roles send `top_k=40`, `presence_penalty=0`, and
+`frequency_penalty=0`.
 
-The OpenAI runner owns the tool loop instead of using the Agents SDK. It sends
-the candidate `system_instruction` through the Responses API `instructions`
-parameter and sends only `Scenario.to_agent_visible_dict()` as user input.
-Hidden scenario truth is never included in model input. The runner disables
-parallel tool calls because the support environment is stateful.
+The runner owns the tool loop. Its Fireworks adapter converts the candidate
+instruction and visible scenario into chat messages, translates fixed function
+schemas into Chat Completions tools, and reconstructs the full message history
+after every tool result. Only `Scenario.to_agent_visible_dict()` is sent as user
+input; hidden scenario truth is never included. Parallel tool calls remain
+disabled because the support environment is stateful.
 
-The default OpenAI candidate is deliberately bounded rather than unsafe:
+The historical default model-policy candidate is deliberately bounded rather than unsafe:
 
 ```text
 cand_openai_degraded_v1
@@ -299,20 +308,20 @@ reads, active-policy lookup, and the policy-allowed write capability. The V2
 candidate intentionally omits automatic final-response revision, giving GEPA
 response-quality headroom without weakening tool or action safety.
 
-Run the degraded OpenAI candidate live only when `OPENAI_API_KEY` is configured
-and the optional `openai` dependency is installed:
+Run the historical degraded policy candidate live only when
+`FIREWORKS_API_KEY` is configured:
 
 ```bash
-PYTHONPATH=src OPENAI_MODEL=gpt-5.5 \
+PYTHONPATH=src FIREWORKS_AGENT_MODEL=accounts/fireworks/models/minimax-m3 \
 python3 -m agent_reliability_lab.runs.recorder \
   --candidate-id cand_openai_degraded_v1
 ```
 
 `main()` loads a repo-root `.env` automatically via `python-dotenv` before
-running, so `OPENAI_API_KEY` does not need to be exported manually. This only
+running, so `FIREWORKS_API_KEY` does not need to be exported manually. This only
 runs on the CLI entry point; library and test usage never touches `.env`.
 
-Unit tests use an injectable fake Responses client and do not call the network.
+Unit tests use an injectable fake response client and do not call the network.
 
 ## GEPA Evaluation Orchestrator
 
@@ -342,7 +351,7 @@ PYTHONPATH=src python3 -m agent_reliability_lab.runs.suite \
   --no-persist
 ```
 
-Run the degraded OpenAI candidate live only when `OPENAI_API_KEY` is configured:
+Run the historical policy candidate live only when `FIREWORKS_API_KEY` is configured:
 
 ```bash
 PYTHONPATH=src python3 -m agent_reliability_lab.runs.suite \
@@ -421,7 +430,8 @@ strict and does not inherit this optimization-only score tolerance.
 The reported `final_candidate_id` is the best accepted optimization parent, not
 a release-certified candidate; holdout and release gates remain out of scope.
 
-Run the loop live only when `OPENAI_API_KEY` is configured:
+Run the loop live only when `FIREWORKS_API_KEY` is configured. Agent rollouts use
+MiniMax M3 while the reflection teacher defaults to GLM-5.2:
 
 ```bash
 PYTHONPATH=src python3 -m agent_reliability_lab.optimization.gepa \
@@ -430,7 +440,8 @@ PYTHONPATH=src python3 -m agent_reliability_lab.optimization.gepa \
   --repeat-count 2 \
   --max-generations 3 \
   --max-mutation-attempts 2 \
-  --children-per-generation 2
+  --children-per-generation 2 \
+  --teacher-model accounts/fireworks/models/glm-5p2
 ```
 
 Individual rollouts are written to `.runs/` and one optimization history is
@@ -455,8 +466,9 @@ released baseline + optimized candidate
 -> PROMOTED | REJECTED | INCONCLUSIVE
 ```
 
-The four original scenarios remain training-visible because Sprint 14 may use
-their evaluator feedback. Release evaluation adds two fresh Northwind fixtures:
+The four original scenarios and four later adversarial variants remain
+training-visible because optimization may use their evaluator feedback. Release
+evaluation remains isolated to two fresh Northwind fixtures:
 
 - `data/release/regression/northwind_lockout_v1.json`
 - `data/release/holdout/northwind_mfa_v1.json`

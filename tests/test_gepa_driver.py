@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 import io
 import json
@@ -18,6 +18,9 @@ from agent_reliability_lab.optimization.candidates import (  # noqa: E402
     DEFAULT_CANDIDATE_POOL,
     Candidate,
     CandidatePool,
+)
+from agent_reliability_lab.agents.openai_runner import (  # noqa: E402
+    DEFAULT_FIREWORKS_TEACHER_MODEL,
 )
 from agent_reliability_lab.optimization.comparison import (  # noqa: E402
     compare_candidate_suites,
@@ -78,6 +81,9 @@ class ScoreByInstructionSuiteRunner:
         instruction = candidate.payload["system_instruction"]
         passed, score, tags = self.outcomes[instruction]
         self.calls.append(candidate_id)
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback is not None:
+            progress_callback(f"suite candidate={candidate_id}")
         return _suite_result(
             candidate,
             passed=passed,
@@ -304,6 +310,7 @@ class GEPADriverTests(unittest.TestCase):
             }
         )
         mutation_ids = iter(("mutation_invalid", "mutation_corrected"))
+        progress: list[str] = []
 
         result = run_gepa_optimization(
             GEPAConfig(
@@ -318,6 +325,7 @@ class GEPADriverTests(unittest.TestCase):
             mutation_id_factory=lambda: next(mutation_ids),
             optimization_id_factory=lambda: "optimization_fixed",
             clock=lambda: FIXED_NOW,
+            progress_callback=progress.append,
         )
 
         generation = result.generations[0]
@@ -337,6 +345,19 @@ class GEPADriverTests(unittest.TestCase):
         self.assertEqual(len(suite_runner.calls), 2)
         serialized = generation.to_dict()
         self.assertEqual(len(serialized["mutation_attempts"]), 2)
+        progress_text = "\n".join(progress)
+        self.assertIn("parent_suite starting", progress_text)
+        self.assertIn("mutation_attempt=1/2 starting", progress_text)
+        self.assertIn("mutation_attempt=1/2 completed succeeded=false", progress_text)
+        self.assertIn("mutation_attempt=2/2 completed succeeded=true", progress_text)
+        self.assertIn("child_suite starting", progress_text)
+        self.assertIn("decision=accepted_improvement", progress_text)
+        self.assertIn(f"suite candidate={PARENT_ID}", progress_text)
+        self.assertIn(
+            "optimization=optimization_fixed completed "
+            "stop_reason=generation_limit_reached",
+            progress_text,
+        )
 
     def test_driver_does_not_retry_reflection_transport_failure(self) -> None:
         parent_instruction = _parent().payload["system_instruction"]
@@ -539,6 +560,26 @@ class GEPADriverTests(unittest.TestCase):
         self.assertEqual(len(result.generations), 1)
         self.assertTrue(result.generations[0].decision.accepted)
 
+    def test_library_is_quiet_without_progress_callback(self) -> None:
+        instruction = _parent().payload["system_instruction"]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            result = run_gepa_optimization(
+                GEPAConfig(PARENT_ID, TEST_SUITE, persist_runs=False),
+                reflection_client=QueueReflectionClient([]),
+                suite_runner=ScoreByInstructionSuiteRunner(
+                    {instruction: (True, 1.0, [])}
+                ),
+                optimization_id_factory=lambda: "optimization_fixed",
+                clock=lambda: FIXED_NOW,
+            )
+
+        self.assertEqual(result.stop_reason, "perfect_parent")
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_history_persistence_is_exclusive(self) -> None:
         instruction = _parent().payload["system_instruction"]
         result = run_gepa_optimization(
@@ -570,15 +611,20 @@ class GEPADriverTests(unittest.TestCase):
             clock=lambda: FIXED_NOW,
         )
         stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        def run_with_progress(*args, **kwargs):
+            kwargs["progress_callback"]("gepa phase progress")
+            return result
 
         with patch(
             "agent_reliability_lab.optimization.gepa.run_gepa_optimization",
-            return_value=result,
+            side_effect=run_with_progress,
         ) as run_optimizer:
             with patch(
                 "agent_reliability_lab.optimization.gepa.OpenAIReflectionClient"
-            ):
-                with redirect_stdout(stdout):
+            ) as reflection_client_class:
+                with redirect_stdout(stdout), redirect_stderr(stderr):
                     exit_code = main(
                         [
                             "--candidate-id",
@@ -603,6 +649,11 @@ class GEPADriverTests(unittest.TestCase):
         self.assertFalse(run_optimizer.call_args.args[0].persist_runs)
         self.assertEqual(run_optimizer.call_args.args[0].max_mutation_attempts, 3)
         self.assertEqual(run_optimizer.call_args.args[0].children_per_generation, 2)
+        self.assertEqual(stderr.getvalue(), "gepa phase progress\n")
+        self.assertNotIn("FIREWORKS_API_KEY", stderr.getvalue())
+        reflection_client_class.assert_called_once_with(
+            model=DEFAULT_FIREWORKS_TEACHER_MODEL
+        )
 
 
 def _parent() -> Candidate:

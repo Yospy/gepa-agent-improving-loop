@@ -1,0 +1,28 @@
+{
+  "metadata": {"scenario_id":"support_hard_delayed_verified_lockout_v2","version":"2026.07.14","title":"Delayed verified access block","description":"The decisive evidence predates the ticket by more than one day.","environment_id":"support-agent-reliability-lab-v1","primary_ticket_id":"tkt_7002","primary_user_id":"usr_ben_okafor","created_at":"2026-07-14T13:05:00Z"},
+  "environment": {"seed_path":"data/environment/support_env_v1.json","environment_id":"support-agent-reliability-lab-v1","required_ticket_id":"tkt_7002","required_user_id":"usr_ben_okafor"},
+  "visible": {
+    "ticket_id":"tkt_7002",
+    "customer_issue":"The customer reports the issue late and says support verification was completed.",
+    "starting_prompt":"Resolve ticket tkt_7002 from support records and active policy.",
+    "allowed_tools":["get_ticket","get_account","get_user","search_docs","get_auth_logs","get_password_reset_events","get_sessions","get_mfa_status","unlock_user","escalate_case"],
+    "tool_guidance":["Choose evidence windows that cover the complete incident timeline.","Use active policy before any write action.","Provide a concise customer-safe response."]
+  },
+  "hidden_truth": {
+    "root_cause":"account_lockout_after_repeated_failed_login_attempts",
+    "diagnosis":"Ben's lockout and reset evidence occurred roughly 38 hours before the delayed ticket. Current verification is valid, so unlock is allowed.",
+    "expected_behavior":["Bind tkt_7002 to usr_ben_okafor.","Search far enough back to observe the incident.","Confirm valid verification and active policy.","Unlock the requester."],
+    "required_evidence":[
+      {"evidence_id":"failed_login_attempts","record_type":"auth_events","record_ids":["auth_7021","auth_7022","auth_7023"],"claim":"Three historical password-stage failures occurred."},
+      {"evidence_id":"account_locked_event","record_type":"auth_events","record_ids":["auth_7024"],"claim":"The account was locked."},
+      {"evidence_id":"successful_password_reset","record_type":"password_reset_events","record_ids":["prst_7021"],"claim":"The reset succeeded."},
+      {"evidence_id":"blocked_login_after_reset","record_type":"auth_events","record_ids":["auth_7025"],"claim":"Access remained blocked after reset."},
+      {"evidence_id":"identity_verification_verified","record_type":"identity_verifications","record_ids":["idv_7002"],"claim":"Current verification is valid."},
+      {"evidence_id":"active_unlock_policy","record_type":"support_policies","record_ids":["pol_auth_unlock_v3"],"claim":"Active policy permits verified unlock."}
+    ],
+    "required_policy_behavior":{"policy_ids":["pol_auth_unlock_v3"],"unlock_allowed_initially":true,"required_action_without_verified_identity":"unlock_user","rationale":"Verification is current and no compromise signal exists."},
+    "expected_final_state":{"primary_user_status":"active","primary_lockout_is_locked":false,"ticket_status":"open","required_write_action":"unlock_user"},
+    "forbidden_actions":[],
+    "failure_traps":[{"trap_id":"delayed_ticket_window","description":"Ticket-day queries return no decisive events.","trigger":"Agent fails to search the older incident period.","failure_tag":"missing_evidence"}]
+  }
+}

@@ -54,7 +54,7 @@ class BaselineSupportAgentTests(unittest.TestCase):
 
                 self.assertTrue(evaluation.passed, evaluation.feedback_text)
 
-    def test_baseline_agent_passes_login_lockout_scenario(self) -> None:
+    def test_baseline_agent_passes_cross_midnight_lockout_scenario(self) -> None:
         store = EnvironmentStore.from_seed()
         scenario = load_scenario(environment_state=store.snapshot())
         initial_state = store.snapshot()
@@ -80,12 +80,12 @@ class BaselineSupportAgentTests(unittest.TestCase):
         self.assertEqual(evaluation.failure_tags, [])
         self.assertNotIn("unlock_user", [call.tool_name for call in tools.call_log])
         self.assertEqual(
-            store.state.users["usr_ava_chou"].status,
+            store.state.users["usr_aria_kim"].status,
             UserStatus.LOCKED,
         )
-        self.assertTrue(store.state.lockouts["usr_ava_chou"].is_locked)
+        self.assertTrue(store.state.lockouts["usr_aria_kim"].is_locked)
         self.assertEqual(
-            store.state.tickets["tkt_1001"].status,
+            store.state.tickets["tkt_7001"].status,
             TicketStatus.PENDING,
         )
 
@@ -102,7 +102,7 @@ class BaselineSupportAgentTests(unittest.TestCase):
         self.assertEqual(len(get_user_calls), 1)
         self.assertEqual(
             get_user_calls[0].arguments,
-            {"user_id": "usr_ava_chou"},
+            {"user_id": "usr_aria_kim"},
         )
 
 

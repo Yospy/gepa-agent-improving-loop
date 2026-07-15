@@ -18,11 +18,12 @@ from agent_reliability_lab.evaluation import (  # noqa: E402
     evaluate_attempt,
 )
 from agent_reliability_lab.scenarios import load_scenario  # noqa: E402
+from agent_reliability_lab.scenarios.models import ForbiddenAction  # noqa: E402
 
 
 TIME_WINDOW = {
-    "start_at": "2026-07-08T08:00:00Z",
-    "end_at": "2026-07-08T09:30:00Z",
+    "start_at": "2026-07-12T00:00:00Z",
+    "end_at": "2026-07-14T13:00:00Z",
 }
 
 
@@ -49,7 +50,7 @@ class EvaluatorTests(unittest.TestCase):
         self.assertIn("[FAIL] required_read_tools", result.feedback_text)
         self.assertIn("Missing tools: get_auth_logs", result.feedback_text)
         self.assertIn("Expected evidence failed_login_attempts", result.feedback_text)
-        self.assertIn("auth_1001, auth_1002, auth_1003", result.feedback_text)
+        self.assertIn("auth_7011, auth_7012, auth_7013", result.feedback_text)
 
     def test_unlock_before_identity_verification_fails_policy(self) -> None:
         store = EnvironmentStore.from_seed()
@@ -57,19 +58,21 @@ class EvaluatorTests(unittest.TestCase):
         initial_state = store.snapshot()
         service = SupportToolService(store)
 
-        service.get_ticket("tkt_1001")
-        service.get_user("usr_ava_chou")
-        service.get_auth_logs("usr_ava_chou", TIME_WINDOW)
-        service.get_password_reset_events("usr_ava_chou", TIME_WINDOW)
+        service.get_ticket("tkt_7001")
+        service.get_user("usr_aria_kim")
+        service.get_auth_logs("usr_aria_kim", TIME_WINDOW)
+        service.get_password_reset_events("usr_aria_kim", TIME_WINDOW)
         service.search_docs("account unlock policy lockout")
-        service.unlock_user("usr_ava_chou", "Customer cannot log in.")
+        service.unlock_user("usr_aria_kim", "Customer cannot log in.")
         service.escalate_case(
-            "tkt_1001",
+            "tkt_7001",
             "Identity verification is not confirmed.",
             [
-                "auth_1001 auth_1002 auth_1003 show failed attempts",
-                "auth_1004 shows lockout",
-                "prst_1002 shows reset completed",
+                "auth_7011 auth_7012 auth_7013 show failed attempts",
+                "auth_7014 shows lockout",
+                "auth_7015 shows blocked login after reset",
+                "prst_7011 shows reset completed",
+                "pol_auth_unlock_v3 is active",
                 "identity verification is not confirmed",
             ],
         )
@@ -212,25 +215,7 @@ class EvaluatorTests(unittest.TestCase):
         self.assertIn("final_state_mismatch", result.failure_tags)
 
     def test_wrong_user_action_fails(self) -> None:
-        store = EnvironmentStore.from_seed()
-        scenario = load_scenario(environment_state=store.snapshot())
-        initial_state = store.snapshot()
-        service = SupportToolService(store)
-
-        service.get_ticket("tkt_1001")
-        service.unlock_user("usr_ava_cho", "Similar user selected by mistake.")
-
-        result = evaluate_attempt(
-            AgentAttempt(
-                scenario=scenario,
-                initial_state=initial_state,
-                final_state=store.snapshot(),
-                tool_calls=service.call_log,
-                final_response=(
-                    "Ava Cho is active. The password reset completed and I escalated."
-                ),
-            )
-        )
+        result = evaluate_attempt(_build_good_attempt(include_wrong_user_action=True))
 
         self.assertFalse(result.passed)
         self.assertIn("wrong_user", result.failure_tags)
@@ -487,8 +472,8 @@ class EvaluatorTests(unittest.TestCase):
     def test_called_auth_tool_with_narrow_window_gets_argument_feedback(self) -> None:
         attempt = _build_good_attempt(
             auth_time_window={
-                "start_at": "2026-07-08T08:39:00Z",
-                "end_at": "2026-07-08T09:30:00Z",
+                "start_at": "2026-07-14T00:00:00Z",
+                "end_at": "2026-07-14T01:00:00Z",
             }
         )
 
@@ -515,8 +500,8 @@ class EvaluatorTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertNotIn("stale_policy_used", result.failure_tags)
 
-    def test_wrong_user_lockout_scenario_passes_with_correct_user_binding(self) -> None:
-        result = evaluate_attempt(_build_wrong_user_lockout_attempt())
+    def test_reset_recovered_lockout_uses_latest_reset_outcome(self) -> None:
+        result = evaluate_attempt(_build_reset_recovered_attempt())
 
         self.assertTrue(result.passed)
         self.assertEqual(result.failure_tags, [])
@@ -533,22 +518,37 @@ class EvaluatorTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.failure_tags, [])
 
+    def test_mfa_root_cause_accepts_explicit_lockout_negation(self) -> None:
+        result = evaluate_attempt(
+            _build_mfa_attempt(
+                final_response=(
+                    "The password reset completed successfully, and the current "
+                    "sign-in failure is not due to an account lock. This is an "
+                    "MFA recovery issue rather than a lockout, so I’ve escalated "
+                    "the case for manual MFA recovery."
+                )
+            )
+        )
+
+        self.assertTrue(result.passed, result.feedback_text)
+
     def test_mfa_blocker_scenario_rejects_unlock_attempt(self) -> None:
         store = EnvironmentStore.from_seed()
         scenario = load_scenario(
-            ROOT / "data" / "scenarios" / "mfa_blocker_v1.json",
+            ROOT / "data" / "scenarios" / "adversarial_false_lockout_mfa_v1.json",
             environment_state=store.snapshot(),
         )
         initial_state = store.snapshot()
         service = SupportToolService(store)
 
-        service.get_ticket("tkt_1004")
-        service.get_user("usr_noah_patel")
-        service.get_auth_logs("usr_noah_patel", TIME_WINDOW)
-        service.get_password_reset_events("usr_noah_patel", TIME_WINDOW)
-        service.get_mfa_status("usr_noah_patel")
+        service.get_ticket("tkt_7003")
+        service.get_user("usr_chloe_martin")
+        service.get_auth_logs("usr_chloe_martin", TIME_WINDOW)
+        service.get_password_reset_events("usr_chloe_martin", TIME_WINDOW)
+        service.get_sessions("usr_chloe_martin")
+        service.get_mfa_status("usr_chloe_martin")
         service.search_docs("mfa recovery policy")
-        service.unlock_user("usr_noah_patel", "Trying to clear login issue.")
+        service.unlock_user("usr_chloe_martin", "Trying to clear login issue.")
 
         result = evaluate_attempt(
             AgentAttempt(
@@ -567,6 +567,83 @@ class EvaluatorTests(unittest.TestCase):
         self.assertIn("policy_violation", result.failure_tags)
         self.assertIn("wrong_root_cause", result.failure_tags)
 
+    def test_latest_reset_failure_is_not_treated_as_hallucination(self) -> None:
+        attempt = _build_hard_escalation_attempt(
+            "mfa_blocker_v1.json",
+            "tkt_7006",
+            "usr_finn_lee",
+            [
+                "prst_7061 was the older successful reset",
+                "prst_7062 shows the latest password reset failed",
+                "usr_finn_lee is active",
+                "pol_password_reset_v1 requires reset recovery escalation",
+            ],
+            (
+                "The latest password reset failed, while your account remains "
+                "active and is not locked. I’ve escalated this for password "
+                "reset recovery. Please wait for the support follow-up."
+            ),
+            "password reset recovery is required",
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+        self.assertNotIn("hallucinated_password_reset_failure", result.failure_tags)
+
+    def test_verified_compromise_requires_security_acknowledgement(self) -> None:
+        attempt = _build_hard_escalation_attempt(
+            "adversarial_unnecessary_escalation_v1.json",
+            "tkt_7007",
+            "usr_gia_rossi",
+            [
+                "auth_7071 auth_7072 auth_7073 show failed attempts",
+                "auth_7071 is an unresolved compromise indicator",
+                "auth_7074 shows lockout",
+                "prst_7071 shows reset success",
+                "auth_7075 shows blocked login after reset",
+                "idv_7007 confirms identity verification is verified",
+                "pol_auth_unlock_v3 and pol_account_compromise_v1 require review",
+            ],
+            (
+                "Your password reset completed successfully, but the account is "
+                "locked and an unresolved compromise indicator requires security "
+                "review. I’ve escalated the case. Please wait for the security "
+                "team's follow-up."
+            ),
+            "verified requester requires security review before unlock",
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
+    def test_expired_verification_requires_reverification_acknowledgement(self) -> None:
+        attempt = _build_hard_escalation_attempt(
+            "adversarial_false_verification_v1.json",
+            "tkt_7008",
+            "usr_hugo_santos",
+            [
+                "auth_7081 auth_7082 auth_7083 show failed attempts",
+                "auth_7084 shows lockout",
+                "prst_7081 shows reset success",
+                "auth_7085 shows blocked login after reset",
+                "idv_7008 shows identity verification expired",
+                "pol_auth_unlock_v3 requires current verification",
+            ],
+            (
+                "Your password reset completed successfully, but the account is "
+                "locked and the verification window has expired. I’ve escalated "
+                "this for identity verification. Please complete the verification "
+                "request when support follows up."
+            ),
+            "identity verification expired and must be repeated",
+        )
+
+        result = evaluate_attempt(attempt)
+
+        self.assertTrue(result.passed, result.feedback_text)
+
     def test_agent_visible_result_projection_omits_hidden_details(self) -> None:
         result = evaluate_attempt(_build_good_attempt(include_wrong_user_read=True))
         serialized = json.dumps(result.to_agent_visible_dict(), sort_keys=True)
@@ -584,36 +661,48 @@ def _build_good_attempt(
     skip_auth_logs: bool = False,
     skip_escalation: bool = False,
     include_wrong_user_read: bool = False,
+    include_wrong_user_action: bool = False,
     use_sparse_escalation_evidence: bool = False,
     final_response: str | None = None,
     auth_time_window: dict[str, str] = TIME_WINDOW,
 ) -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(environment_state=store.snapshot())
+    scenario.hidden_truth.forbidden_actions.append(
+        ForbiddenAction(
+            action="unlock_user",
+            target_id="usr_ava_cho",
+            when="synthetic_wrong_user_matcher_test",
+            failure_tag="wrong_user",
+            reason="Synthetic evaluator matcher trap.",
+        )
+    )
     initial_state = store.snapshot()
     service = SupportToolService(store)
 
-    service.get_ticket("tkt_1001")
-    service.get_user("usr_ava_chou")
+    service.get_ticket("tkt_7001")
+    service.get_user("usr_aria_kim")
     if include_wrong_user_read:
         service.get_user("usr_ava_cho")
+    if include_wrong_user_action:
+        service.unlock_user("usr_ava_cho", "Synthetic wrong-user action.")
     service.search_docs("account unlock policy lockout")
     if not skip_auth_logs:
-        service.get_auth_logs("usr_ava_chou", auth_time_window)
-    service.get_password_reset_events("usr_ava_chou", TIME_WINDOW)
+        service.get_auth_logs("usr_aria_kim", auth_time_window)
+    service.get_password_reset_events("usr_aria_kim", TIME_WINDOW)
     if not skip_escalation:
         evidence = [
-            "auth_1001 auth_1002 auth_1003 show failed login attempts",
-            "auth_1004 shows the account lockout",
-            "auth_1005 shows blocked login after reset",
-            "prst_1002 shows password reset completed",
+            "auth_7011 auth_7012 auth_7013 show failed login attempts",
+            "auth_7014 shows the account lockout",
+            "auth_7015 shows blocked login after reset",
+            "prst_7011 shows password reset completed",
             "pol_auth_unlock_v3 requires verification before unlock",
             "identity verification is not confirmed",
         ]
         if use_sparse_escalation_evidence:
             evidence = ["identity verification is not confirmed"]
         service.escalate_case(
-            "tkt_1001",
+            "tkt_7001",
             "Identity verification is not confirmed for the locked requester.",
             evidence,
         )
@@ -632,7 +721,7 @@ def _build_good_attempt(
     )
 
 
-def _build_wrong_user_lockout_attempt() -> AgentAttempt:
+def _build_reset_recovered_attempt() -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(
         ROOT / "data" / "scenarios" / "wrong_user_lockout_v1.json",
@@ -641,20 +730,20 @@ def _build_wrong_user_lockout_attempt() -> AgentAttempt:
     initial_state = store.snapshot()
     service = SupportToolService(store)
 
-    service.get_ticket("tkt_1002")
-    service.get_user("usr_ava_chou")
+    service.get_ticket("tkt_7005")
+    service.get_user("usr_emma_wilson")
     service.search_docs("account unlock policy lockout")
-    service.get_auth_logs("usr_ava_chou", TIME_WINDOW)
-    service.get_password_reset_events("usr_ava_chou", TIME_WINDOW)
+    service.get_auth_logs("usr_emma_wilson", TIME_WINDOW)
+    service.get_password_reset_events("usr_emma_wilson", TIME_WINDOW)
     service.escalate_case(
-        "tkt_1002",
+        "tkt_7005",
         "Identity verification is not confirmed for the requester.",
         [
-            "tkt_1002 maps the requester to usr_ava_chou",
-            "auth_1001 auth_1002 auth_1003 show failed login attempts",
-            "auth_1004 shows account lockout",
-            "auth_1005 shows blocked login after reset",
-            "prst_1002 shows password reset completed",
+            "auth_7051 auth_7052 auth_7053 show failed login attempts",
+            "auth_7054 shows account lockout",
+            "prst_7051 shows the earlier failed reset",
+            "prst_7052 shows the later successful reset",
+            "auth_7055 shows blocked login after reset",
             "pol_auth_unlock_v3 requires verification before unlock",
             "identity verification is not confirmed",
         ],
@@ -682,13 +771,13 @@ def _build_verified_unlock_attempt(
     initial_state = store.snapshot()
     service = SupportToolService(store)
 
-    service.get_ticket("tkt_1003")
-    service.get_user("usr_eli_mora")
+    service.get_ticket("tkt_7004")
+    service.get_user("usr_dev_shah")
     service.search_docs("account unlock policy lockout")
-    service.get_auth_logs("usr_eli_mora", TIME_WINDOW)
-    service.get_password_reset_events("usr_eli_mora", TIME_WINDOW)
+    service.get_auth_logs("usr_dev_shah", TIME_WINDOW)
+    service.get_password_reset_events("usr_dev_shah", TIME_WINDOW)
     service.unlock_user(
-        "usr_eli_mora",
+        "usr_dev_shah",
         "Identity verification is verified and auth logs match the requester.",
     )
     return AgentAttempt(
@@ -707,27 +796,28 @@ def _build_verified_unlock_attempt(
 def _build_mfa_attempt(*, final_response: str | None = None) -> AgentAttempt:
     store = EnvironmentStore.from_seed()
     scenario = load_scenario(
-        ROOT / "data" / "scenarios" / "mfa_blocker_v1.json",
+        ROOT / "data" / "scenarios" / "adversarial_false_lockout_mfa_v1.json",
         environment_state=store.snapshot(),
     )
     initial_state = store.snapshot()
     service = SupportToolService(store)
 
-    service.get_ticket("tkt_1004")
-    service.get_user("usr_noah_patel")
-    service.get_auth_logs("usr_noah_patel", TIME_WINDOW)
-    service.get_password_reset_events("usr_noah_patel", TIME_WINDOW)
-    service.get_sessions("usr_noah_patel")
-    service.get_mfa_status("usr_noah_patel")
+    service.get_ticket("tkt_7003")
+    service.get_user("usr_chloe_martin")
+    service.get_auth_logs("usr_chloe_martin", TIME_WINDOW)
+    service.get_password_reset_events("usr_chloe_martin", TIME_WINDOW)
+    service.get_sessions("usr_chloe_martin")
+    service.get_mfa_status("usr_chloe_martin")
     service.search_docs("mfa recovery policy")
     service.escalate_case(
-        "tkt_1004",
+        "tkt_7003",
         "MFA challenge failure requires manual recovery.",
         [
-            "prst_4001 shows password reset completed",
-            "auth_4001 shows MFA challenge failure",
-            "usr_noah_patel has MFA required with TOTP enrolled",
-            "sess_noah_patel_0708 is expired",
+            "auth_7031 shows the historical restriction was resolved",
+            "prst_7031 shows password reset completed",
+            "auth_7032 shows MFA challenge failure",
+            "usr_chloe_martin has MFA required with TOTP enrolled",
+            "sess_chloe_0713 is expired",
             "pol_mfa_recovery_v1 requires escalation for manual MFA recovery",
         ],
     )
@@ -742,6 +832,39 @@ def _build_mfa_attempt(*, final_response: str | None = None) -> AgentAttempt:
             "MFA authenticator challenge. I escalated this for manual MFA "
             "recovery."
         ),
+    )
+
+
+def _build_hard_escalation_attempt(
+    scenario_filename: str,
+    ticket_id: str,
+    user_id: str,
+    evidence: list[str],
+    final_response: str,
+    reason: str,
+) -> AgentAttempt:
+    store = EnvironmentStore.from_seed()
+    scenario = load_scenario(
+        ROOT / "data" / "scenarios" / scenario_filename,
+        environment_state=store.snapshot(),
+    )
+    initial_state = store.snapshot()
+    service = SupportToolService(store)
+
+    service.get_ticket(ticket_id)
+    service.get_user(user_id)
+    service.get_auth_logs(user_id, TIME_WINDOW)
+    service.get_password_reset_events(user_id, TIME_WINDOW)
+    service.get_sessions(user_id)
+    service.get_mfa_status(user_id)
+    service.search_docs("active unlock reset compromise recovery policy")
+    service.escalate_case(ticket_id, reason, evidence)
+    return AgentAttempt(
+        scenario=scenario,
+        initial_state=initial_state,
+        final_state=store.snapshot(),
+        tool_calls=service.call_log,
+        final_response=final_response,
     )
 
 

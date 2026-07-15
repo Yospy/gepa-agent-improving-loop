@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import sys
 import unittest
@@ -130,10 +131,10 @@ class SupportToolServiceTests(unittest.TestCase):
         )
 
     def test_unlock_user_succeeds_after_verified_identity(self) -> None:
-        self.store.state.identity_verifications["idv_1001"].status = (
+        self.store.state.identity_verifications["idv_1002"].status = (
             IdentityVerificationStatus.VERIFIED
         )
-        self.store.state.identity_verifications["idv_1001"].verified_by = (
+        self.store.state.identity_verifications["idv_1002"].verified_by = (
             "agent:test"
         )
 
@@ -154,6 +155,66 @@ class SupportToolServiceTests(unittest.TestCase):
                 entry.action == "user_unlocked"
                 for entry in self.store.state.audit_log.values()
             )
+        )
+
+    def test_unlock_user_denied_when_verification_is_expired(self) -> None:
+        verification = self.store.state.identity_verifications["idv_3001"]
+        verification.expires_at = datetime(
+            2026, 7, 8, 9, 59, 59, tzinfo=timezone.utc
+        )
+
+        result = self.tools.unlock_user(
+            "usr_eli_mora",
+            "Requester was previously verified.",
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error.code, "identity_verification_required")
+        self.assertEqual(
+            self.store.state.users["usr_eli_mora"].status,
+            UserStatus.LOCKED,
+        )
+
+    def test_unlock_user_uses_latest_identity_verification_record(self) -> None:
+        previous = self.store.state.identity_verifications["idv_3001"]
+        latest = deepcopy(previous)
+        latest.verification_id = "idv_3001_expired"
+        latest.status = IdentityVerificationStatus.EXPIRED
+        latest.occurred_at = datetime(
+            2026, 7, 8, 9, 50, 0, tzinfo=timezone.utc
+        )
+        latest.expires_at = datetime(
+            2026, 7, 8, 9, 49, 59, tzinfo=timezone.utc
+        )
+        self.store.state.identity_verifications[latest.verification_id] = latest
+
+        result = self.tools.unlock_user(
+            "usr_eli_mora",
+            "An older verification record is still within its original window.",
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error.code, "identity_verification_required")
+        self.assertEqual(
+            self.store.state.users["usr_eli_mora"].status,
+            UserStatus.LOCKED,
+        )
+
+    def test_unlock_user_denied_for_unresolved_compromise_indicator(self) -> None:
+        self.store.state.auth_events["auth_3005"].details.update(
+            {"compromise_indicator": True, "resolved": False}
+        )
+
+        result = self.tools.unlock_user(
+            "usr_eli_mora",
+            "Requester is verified but security evidence is unresolved.",
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error.code, "security_review_required")
+        self.assertEqual(
+            self.store.state.users["usr_eli_mora"].status,
+            UserStatus.LOCKED,
         )
 
     def test_escalate_case_mutates_ticket_and_audit_log(self) -> None:

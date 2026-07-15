@@ -14,8 +14,8 @@ from uuid import uuid4
 
 from agent_reliability_lab.agents import (
     BaselineSupportAgent,
+    DEFAULT_FIREWORKS_AGENT_MODEL,
     DEFAULT_MAX_STEPS,
-    DEFAULT_OPENAI_MODEL,
     DEFAULT_TEMPERATURE,
     MissingAuthLogsSupportAgent,
     OpenAISupportAgent,
@@ -202,7 +202,7 @@ def _run_candidate_agent(
             system_instruction=_candidate_system_instruction(candidate),
             agent_name=candidate.agent_name,
             agent_version=candidate.agent_version,
-            model=_openai_model(),
+            model=_fireworks_agent_model(),
             temperature=DEFAULT_TEMPERATURE,
             max_steps=DEFAULT_MAX_STEPS,
             responses_client=responses_client,
@@ -234,11 +234,11 @@ def _candidate_system_instruction(candidate: Candidate) -> str:
     return value
 
 
-def _openai_model() -> str:
-    env_model = os.environ.get("OPENAI_MODEL")
+def _fireworks_agent_model() -> str:
+    env_model = os.environ.get("FIREWORKS_AGENT_MODEL")
     if env_model:
         return env_model
-    return DEFAULT_OPENAI_MODEL
+    return DEFAULT_FIREWORKS_AGENT_MODEL
 
 
 def _agent_trace(agent_result: Any) -> list[dict[str, Any]] | None:
@@ -301,7 +301,7 @@ def _utc_now() -> datetime:
 
 
 def _load_dotenv() -> None:
-    """Load OPENAI_API_KEY/OPENAI_MODEL from a repo-root .env for live runs."""
+    """Load Fireworks credentials/model settings for live CLI runs."""
     try:
         from dotenv import load_dotenv
     except ImportError:
